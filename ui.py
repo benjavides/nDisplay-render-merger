@@ -40,6 +40,14 @@ def update_progressbar(value, max_value, start_time):
 
 
 def run_compositor():
+    if not input_dir.get() or not ndisplay_config_path.get():
+        print("Please provide valid paths for input directory and nDisplay config.")
+        return
+
+    # Check if the provided paths exist
+    if not os.path.isdir(input_dir.get()) or not os.path.isfile(ndisplay_config_path.get()):
+        print("Invalid paths provided. Please provide existing paths for input directory and nDisplay config.")
+        return
     start_time = time.time()
     main(input_dir.get(), ndisplay_config_path.get(), update_progressbar, start_time)
     
@@ -55,16 +63,17 @@ def run_compositor_thread():
 if __name__ == "__main__":
     root = TkinterDnD.Tk()
     root.title("Pi nDisplay Image Compositor")
+    root.iconbitmap(r'.\assets\app.ico')
 
     input_dir = tk.StringVar()
     ndisplay_config_path = tk.StringVar()
 
-    tk.Label(root, text="Input Directory:").grid(row=0, column=0, sticky="e")
+    tk.Label(root, text="Input Directory:").grid(row=0, column=0, sticky="e", padx=10, pady=10)
     input_dir_entry = tk.Entry(root, textvariable=input_dir, width=50)
     input_dir_entry.grid(row=0, column=1)
     input_dir_entry.drop_target_register("DND_Files")
     input_dir_entry.dnd_bind("<<Drop>>", on_drop_input_dir)
-    tk.Button(root, text="Browse", command=browse_input_dir).grid(row=0, column=2)
+    tk.Button(root, text="Browse", command=browse_input_dir).grid(row=0, column=2, padx=10, pady=10)
 
     tk.Label(root, text="nDisplay Config:").grid(row=1, column=0, sticky="e")
     ndisplay_config_entry = tk.Entry(root, textvariable=ndisplay_config_path, width=50)
@@ -76,7 +85,7 @@ if __name__ == "__main__":
     tk.Button(root, text="Run Compositor", command=run_compositor_thread).grid(row=2, column=1, pady=10)
 
     progressbar = ttk.Progressbar(root, orient=tk.HORIZONTAL, length=300, mode='determinate')
-    progressbar.grid(row=3, column=1, pady=10)
+    progressbar.grid(row=3, column=1, pady=5)
 
     progress_label = tk.Label(root, text="")
     progress_label.grid(row=4, column=1)
