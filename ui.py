@@ -63,7 +63,6 @@ def run_compositor_thread():
 if __name__ == "__main__":
     root = TkinterDnD.Tk()
     root.title("Pi nDisplay Image Compositor")
-    root.iconbitmap(r'.\assets\app.ico')
 
     input_dir = tk.StringVar()
     ndisplay_config_path = tk.StringVar()
