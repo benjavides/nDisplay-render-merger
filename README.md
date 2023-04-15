@@ -10,17 +10,13 @@ When rendering nDisplay with the Movie Render Queue in Unreal 5.1 it exports one
 pip install -r requirements.txt
 ```
 
-
-
-# Compile to Executable
+## Compile to Executable
 
 ```
-python -m PyInstaller --onefile --windowed ui.py --additional-hooks-dir=.
+python -m PyInstaller --onefile --windowed ui.py --additional-hooks-dir=. --name=nDisplayMerger
 ```
 
-
-
-## Usage
+## Source Code Usage
 
 ```
 python .\nDisplayMerger.py .\MovieRenders nDisplayConfig.ndisplay
