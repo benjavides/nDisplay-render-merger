@@ -1,0 +1,1582 @@
+{
+	"nDisplay":
+	{
+		"description": "",
+		"version": "5.00",
+		"assetPath": "/Game/Migrated/nDisplay_Cinta_Unreal.nDisplay_Cinta_Unreal",
+		"misc":
+		{
+			"bFollowLocalPlayerCamera": false,
+			"bExitOnEsc": true,
+			"bOverrideViewportsFromExternalConfig": false
+		},
+		"scene":
+		{
+			"xforms":
+			{
+				"nDisplayTransform":
+				{
+					"parentId": "Piso1",
+					"location":
+					{
+						"x": -2.4158453015843406e-13,
+						"y": 1.5487943285713951e-32,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 37.506801605224609,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"nDisplayTransform1":
+				{
+					"parentId": "Segmento0",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": -0
+					}
+				},
+				"nDisplayTransform2":
+				{
+					"parentId": "Segmento1",
+					"location":
+					{
+						"x": 3.5527136788005009e-15,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": -0
+					}
+				},
+				"nDisplayTransform3":
+				{
+					"parentId": "Segmento2",
+					"location":
+					{
+						"x": -4.5297099404706387e-14,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": -0
+					}
+				},
+				"nDisplayTransform4":
+				{
+					"parentId": "Segmento3",
+					"location":
+					{
+						"x": 4.0023540037736893e-14,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"nDisplayTransform5":
+				{
+					"parentId": "Segmento4",
+					"location":
+					{
+						"x": 1.9706458687096529e-14,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": -0
+					}
+				},
+				"nDisplayTransform6":
+				{
+					"parentId": "Segmento5",
+					"location":
+					{
+						"x": -2.3092638912203256e-14,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": -0
+					}
+				},
+				"nDisplayTransform7":
+				{
+					"parentId": "Segmento6",
+					"location":
+					{
+						"x": 4.2632564145606011e-14,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": -0
+					}
+				},
+				"nDisplayTransform8":
+				{
+					"parentId": "Segmento7",
+					"location":
+					{
+						"x": -2.8421709430404007e-14,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": -0
+					}
+				},
+				"nDisplayTransform9":
+				{
+					"parentId": "Segmento8",
+					"location":
+					{
+						"x": 7.815970093361102e-14,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": -0
+					}
+				},
+				"nDisplayTransform10":
+				{
+					"parentId": "Segmento9",
+					"location":
+					{
+						"x": -9.9475983006414026e-14,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 0,
+						"roll": -0
+					}
+				},
+				"nDisplayTransform11":
+				{
+					"parentId": "Segmento10",
+					"location":
+					{
+						"x": 2.8421709430404007e-13,
+						"y": 0,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 9.043042329499526e-16,
+						"roll": -5.8516768235250907e-17
+					}
+				},
+				"nDisplayTransform12":
+				{
+					"parentId": "Segmento11",
+					"location":
+					{
+						"x": -4.8316906031686813e-13,
+						"y": 2.1743468716729222e-32,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 1.7997161022613927e-15,
+						"roll": -2.9529093200589968e-16
+					}
+				},
+				"nDisplayTransform13":
+				{
+					"parentId": "Segmento12",
+					"location":
+					{
+						"x": 4.5474735088646412e-13,
+						"y": -1.9596707464860634e-32,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 1.7384753025375516e-15,
+						"roll": -5.2400809191248594e-16
+					}
+				},
+				"nDisplayTransform14":
+				{
+					"parentId": "Segmento13",
+					"location":
+					{
+						"x": -4.5474735088646412e-13,
+						"y": 9.9014945455073415e-32,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 1.6793182038639561e-15,
+						"roll": -7.4494250134146288e-16
+					}
+				},
+				"nDisplayTransform15":
+				{
+					"parentId": "Segmento14",
+					"location":
+					{
+						"x": 4.6895820560166612e-13,
+						"y": -4.6073692098311567e-32,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 1.6221741848686288e-15,
+						"roll": -9.5835891102840666e-16
+					}
+				},
+				"nDisplayTransform16":
+				{
+					"parentId": "Segmento15",
+					"location":
+					{
+						"x": -4.9027448767446913e-13,
+						"y": 2.0767543331570613e-31,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 1.5669746358828421e-15,
+						"roll": -1.1645130719838289e-15
+					}
+				},
+				"nDisplayTransform17":
+				{
+					"parentId": "Segmento16",
+					"location":
+					{
+						"x": 4.4053649617126212e-13,
+						"y": -8.8029480548898809e-32,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 1.5136534883367103e-15,
+						"roll": -1.3636523178283278e-15
+					}
+				},
+				"nDisplayTransform18":
+				{
+					"parentId": "Segmento17",
+					"location":
+					{
+						"x": -4.7606363295926712e-13,
+						"y": 3.0260132763189615e-31,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 1.4621466853635971e-15,
+						"roll": -1.5560151942156739e-15
+					}
+				},
+				"nDisplayTransform19":
+				{
+					"parentId": "Segmento18",
+					"location":
+					{
+						"x": 4.9737991503207013e-13,
+						"y": -1.0729579769404558e-31,
+						"z": 0.5
+					},
+					"rotation":
+					{
+						"pitch": 14.989800453186035,
+						"yaw": 1.41239260531659e-15,
+						"roll": -1.7418323058657572e-15
+					}
+				}
+			},
+			"cameras":
+			{
+				"DefaultViewPoint":
+				{
+					"interpupillaryDistance": 6.4000000953674316,
+					"swapEyes": false,
+					"stereoOffset": "none",
+					"parentId": "",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 160
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				}
+			},
+			"screens":
+			{
+				"Piso1":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 686
+					},
+					"parentId": "",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 0
+					},
+					"rotation":
+					{
+						"pitch": -90,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento0":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 93.400001525878906
+					},
+					"parentId": "nDisplayTransform",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 46.700000762939453
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento1":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform1",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento2":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform2",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento3":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform3",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento4":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform4",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento5":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform5",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento6":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform6",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento7":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform7",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento8":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform8",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento9":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform9",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento10":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform10",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento11":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform11",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento12":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform12",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento13":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform13",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento14":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform14",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento15":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform15",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento16":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform16",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento17":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform17",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento18":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 154
+					},
+					"parentId": "nDisplayTransform18",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 77
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				},
+				"Segmento19":
+				{
+					"size":
+					{
+						"width": 574,
+						"height": 93.400001525878906
+					},
+					"parentId": "nDisplayTransform19",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 46.700000762939453
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				}
+			}
+		},
+		"cluster":
+		{
+			"primaryNode":
+			{
+				"id": "Node_0",
+				"ports":
+				{
+					"ClusterSync": 41001,
+					"ClusterEventsJson": 41003,
+					"ClusterEventsBinary": 41004
+				}
+			},
+			"sync":
+			{
+				"renderSyncPolicy":
+				{
+					"type": "ethernet",
+					"parameters":
+					{
+					}
+				},
+				"inputSyncPolicy":
+				{
+					"type": "ReplicatePrimary",
+					"parameters":
+					{
+					}
+				}
+			},
+			"network":
+			{
+				"ConnectRetriesAmount": "300",
+				"ConnectRetryDelay": "1000",
+				"GameStartBarrierTimeout": "18000000",
+				"FrameStartBarrierTimeout": "1800000",
+				"FrameEndBarrierTimeout": "1800000",
+				"RenderSyncBarrierTimeout": "1800000"
+			},
+			"failover":
+			{
+				"failoverPolicy": "Disabled"
+			},
+			"nodes":
+			{
+				"Node_0":
+				{
+					"host": "127.0.0.1",
+					"sound": false,
+					"fullScreen": false,
+					"textureShare": false,
+					"window":
+					{
+						"x": 0,
+						"y": 0,
+						"w": 3840,
+						"h": 2400
+					},
+					"postprocess":
+					{
+					},
+					"viewports":
+					{
+						"Piso":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 0,
+								"y": 0,
+								"w": 1200,
+								"h": 1306
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"mesh_component": "",
+									"screen": "Piso1"
+								}
+							}
+						},
+						"Segmento1":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 1484,
+								"y": 0,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento1"
+								}
+							}
+						},
+						"Segmento0":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 1306,
+								"y": 0,
+								"w": 1200,
+								"h": 178
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento0"
+								}
+							}
+						},
+						"Segmento2":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 1777,
+								"y": 0,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento2"
+								}
+							}
+						},
+						"Segmento3":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 2070,
+								"y": 0,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento3"
+								}
+							}
+						},
+						"Segmento4":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 2363,
+								"y": 0,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento4"
+								}
+							}
+						},
+						"Segmento5":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 2656,
+								"y": 0,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento5"
+								}
+							}
+						},
+						"Segmento6":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 2949,
+								"y": 0,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento6"
+								}
+							}
+						},
+						"Segmento7":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 3242,
+								"y": 0,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento7"
+								}
+							}
+						},
+						"Segmento8":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 3536,
+								"y": 0,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento8"
+								}
+							}
+						},
+						"Segmento9":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 0,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento9"
+								}
+							}
+						},
+						"Segmento10":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 293,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento10"
+								}
+							}
+						},
+						"Segmento11":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 586,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento11"
+								}
+							}
+						},
+						"Segmento12":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 879,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento12"
+								}
+							}
+						},
+						"Segmento13":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 1172,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento13"
+								}
+							}
+						},
+						"Segmento14":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 1465,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento14"
+								}
+							}
+						},
+						"Segmento15":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 1758,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento15"
+								}
+							}
+						},
+						"Segmento16":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 2051,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento16"
+								}
+							}
+						},
+						"Segmento17":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 2344,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento17"
+								}
+							}
+						},
+						"Segmento18":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 2637,
+								"y": 1200,
+								"w": 1200,
+								"h": 293
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento18"
+								}
+							}
+						},
+						"Segmento19":
+						{
+							"camera": "",
+							"bufferRatio": 1,
+							"gPUIndex": -1,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 2930,
+								"y": 1200,
+								"w": 1200,
+								"h": 178
+							},
+							"projectionPolicy":
+							{
+								"type": "simple",
+								"parameters":
+								{
+									"screen": "Segmento19"
+								}
+							}
+						}
+					},
+					"outputRemap":
+					{
+						"bEnable": false,
+						"dataSource": "mesh",
+						"staticMeshAsset": "",
+						"externalFile": ""
+					}
+				}
+			}
+		},
+		"customParameters":
+		{
+		},
+		"diagnostics":
+		{
+			"simulateLag": false,
+			"minLagTime": 0.0099999997764825821,
+			"maxLagTime": 0.30000001192092896
+		}
+	}
+}
