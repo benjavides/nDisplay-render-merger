@@ -24,7 +24,7 @@ jobs:
         pip install pyinstaller
 
     - name: Build Executable
-      run: python -m PyInstaller --onefile --windowed ui.py --additional-hooks-dir=./ --name=nDisplayMerger --icon=assets\app.ico
+      run: python -m PyInstaller --onefile --windowed ui.py --additional-hooks-dir=. --name=nDisplayMerger --icon=assets\app.ico
 
     - name: Create Release
       id: create_release
