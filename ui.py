@@ -1,9 +1,11 @@
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, ttk
 from tkinterdnd2 import TkinterDnD
 from nDisplayMerger import main
 import os
+import time
 import subprocess
+import threading
 
 def on_drop_input_dir(event):
     path = os.path.normpath(event.data.strip('{}'))
@@ -27,12 +29,27 @@ def browse_ndisplay_config():
     rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
     ndisplay_config_path.set(abs_path)
 
+def update_progressbar(value, max_value, start_time):
+    progressbar['value'] = value
+    progressbar['maximum'] = max_value
+    elapsed_time = time.time() - start_time
+    remaining_time = (max_value - value) * (elapsed_time / value)
+    progress_label.config(text=f"Time remaining: {int(remaining_time)} seconds")
+    # print(f"Progress bar: {value}/{max_value}")
+    # print(f"Time remaining: {int(remaining_time)} seconds")
+
+
 def run_compositor():
-    main(input_dir.get(), ndisplay_config_path.get())
+    start_time = time.time()
+    main(input_dir.get(), ndisplay_config_path.get(), update_progressbar, start_time)
     
     output_dir = os.path.join(input_dir.get(), "merged")
     os.startfile(output_dir)  # Open the output folder in Windows
     root.destroy()  # Close the UI
+
+def run_compositor_thread():
+    run_thread = threading.Thread(target=run_compositor, daemon=True)
+    run_thread.start()
 
 
 if __name__ == "__main__":
@@ -56,6 +73,12 @@ if __name__ == "__main__":
     ndisplay_config_entry.dnd_bind("<<Drop>>", on_drop_ndisplay_config)
     tk.Button(root, text="Browse", command=browse_ndisplay_config).grid(row=1, column=2)
 
-    tk.Button(root, text="Run Compositor", command=run_compositor).grid(row=2, column=1, pady=10)
+    tk.Button(root, text="Run Compositor", command=run_compositor_thread).grid(row=2, column=1, pady=10)
+
+    progressbar = ttk.Progressbar(root, orient=tk.HORIZONTAL, length=300, mode='determinate')
+    progressbar.grid(row=3, column=1, pady=10)
+
+    progress_label = tk.Label(root, text="")
+    progress_label.grid(row=4, column=1)
 
     root.mainloop()

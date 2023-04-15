@@ -24,11 +24,11 @@ def find_images(input_dir, viewports):
                 break
     return images
 
-def composite_images(input_dir, viewports, images):
+def composite_images(input_dir, viewports, images, update_progressbar=None, start_time=None):
     output_dir = os.path.join(input_dir, "merged")
     os.makedirs(output_dir, exist_ok=True)
     
-    for frame_number, image_files in images.items():
+    for idx, (frame_number, image_files) in enumerate(images.items()):
         output_image = Image.new("RGB", (viewports['window']['w'], viewports['window']['h']))
         level_sequence_name = None
         for viewport_name, file_path in image_files.items():
@@ -40,16 +40,22 @@ def composite_images(input_dir, viewports, images):
                 level_sequence_name = file_path.split(".")[0].split(os.path.sep)[-1]
             
             output_image.paste(viewport_img, (x, y))
-
+        
         image_path = os.path.join(output_dir, f"{level_sequence_name}.{frame_number}.jpeg")
         output_image.save(image_path)
+        
+        if update_progressbar:
+            update_progressbar(idx + 1, len(images), start_time)
 
-def main(input_dir, ndisplay_config_path):
+def main(input_dir, ndisplay_config_path, update_progressbar=None, start_time=None):
     print(input_dir, ndisplay_config_path)
     viewports, window = read_ndisplay_config(ndisplay_config_path)
     viewports['window'] = window
     images = find_images(input_dir, viewports)
-    composite_images(input_dir, viewports, images)
+    if update_progressbar:
+        composite_images(input_dir, viewports, images, update_progressbar, start_time)
+    else:
+        composite_images(input_dir, viewports, images)
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
