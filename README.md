@@ -13,7 +13,7 @@ pip install -r requirements.txt
 ## Compile to Executable
 
 ```
-python -m PyInstaller --onefile --windowed ui.py --additional-hooks-dir=. --name=nDisplayMerger --icon=assets\app.ico
+python -m PyInstaller --onefile --windowed ui.py --additional-hooks-dir=./ --name=nDisplayMerger --icon=assets\app.ico
 ```
 
 ## Source Code Usage
