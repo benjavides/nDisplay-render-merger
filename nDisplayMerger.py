@@ -14,14 +14,17 @@ def read_ndisplay_config(file_path):
 
 def find_images(input_dir, viewports):
     images = {}
+    supported_formats = [".jpeg", ".jpg", ".png"]
     for file_name in os.listdir(input_dir):
-        for viewport_name in viewports:
-            if file_name.endswith(".jpeg") and f".{viewport_name}." in file_name:
-                level_sequence_name, viewport, frame_number, _ = file_name.split(".")
-                if frame_number not in images:
-                    images[frame_number] = {}
-                images[frame_number][viewport] = os.path.join(input_dir, file_name)
-                break
+        file_ext = os.path.splitext(file_name)[-1].lower()
+        if file_ext in supported_formats:
+            for viewport_name in viewports:
+                if f".{viewport_name}." in file_name:
+                    level_sequence_name, viewport, frame_number, _ = file_name.split(".")
+                    if frame_number not in images:
+                        images[frame_number] = {}
+                    images[frame_number][viewport] = os.path.join(input_dir, file_name)
+                    break
     return images
 
 def composite_images(input_dir, viewports, images, update_progressbar=None, start_time=None):
