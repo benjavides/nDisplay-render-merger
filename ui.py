@@ -4,29 +4,28 @@ from tkinterdnd2 import TkinterDnD
 from nDisplayMerger import main
 import os
 import time
-import subprocess
 import threading
 
 def on_drop_input_dir(event):
     path = os.path.normpath(event.data.strip('{}'))
     abs_path = os.path.abspath(path)
-    rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
-    input_dir.set(path)
+    # rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
+    input_dir.set(abs_path)
 
 def on_drop_ndisplay_config(event):
     path = os.path.normpath(event.data.strip('{}'))
     abs_path = os.path.abspath(path)
-    rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
-    ndisplay_config_path.set(path)
+    # rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
+    ndisplay_config_path.set(abs_path)
 
 def browse_input_dir():
     abs_path = filedialog.askdirectory()
-    rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
+    # rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
     input_dir.set(abs_path)
 
 def browse_ndisplay_config():
     abs_path = filedialog.askopenfilename(filetypes=[("nDisplay Config Files", "*.ndisplay")])
-    rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
+    # rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
     ndisplay_config_path.set(abs_path)
 
 def update_progressbar(value, max_value, start_time):

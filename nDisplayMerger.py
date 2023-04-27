@@ -40,12 +40,14 @@ def composite_images(input_dir, viewports, images, update_progressbar=None, star
             y = viewports[viewport_name]['region']['y']
             
             if not level_sequence_name:
-                level_sequence_name = file_path.split(".")[0].split(os.path.sep)[-1]
+                file_name = os.path.basename(file_path)
+                level_sequence_name = file_name.split(".")[0].split(os.path.sep)[-1]
             
             output_image.paste(viewport_img, (x, y))
         
         image_path = os.path.join(output_dir, f"{level_sequence_name}.{frame_number}.jpeg")
         output_image.save(image_path)
+        # print(f"Saved image to {image_path}")  # Add this line
         
         if update_progressbar:
             update_progressbar(idx + 1, len(images), start_time)
@@ -68,7 +70,7 @@ if __name__ == "__main__":
     input_dir = sys.argv[1]
     ndisplay_config_path = sys.argv[2]
 
-    # input_dir = "./MovieRenders"
-    # ndisplay_config_path = "./nDisplayConfig.ndisplay"
+    # input_dir = "./Example/MovieRenders"
+    # ndisplay_config_path = "./Example/nDisplayConfig.ndisplay"
     
     main(input_dir, ndisplay_config_path)
