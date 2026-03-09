@@ -6,36 +6,50 @@ import os
 import time
 import threading
 
+
 def on_drop_input_dir(event):
-    path = os.path.normpath(event.data.strip('{}'))
+    path = os.path.normpath(event.data.strip("{}"))
     abs_path = os.path.abspath(path)
-    # rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
     input_dir.set(abs_path)
 
+
 def on_drop_ndisplay_config(event):
-    path = os.path.normpath(event.data.strip('{}'))
+    path = os.path.normpath(event.data.strip("{}"))
     abs_path = os.path.abspath(path)
-    # rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
     ndisplay_config_path.set(abs_path)
+
 
 def browse_input_dir():
     abs_path = filedialog.askdirectory()
-    # rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
     input_dir.set(abs_path)
+
 
 def browse_ndisplay_config():
     abs_path = filedialog.askopenfilename(filetypes=[("nDisplay Config Files", "*.ndisplay")])
-    # rel_path = os.path.relpath(abs_path, os.path.dirname(os.path.abspath(__file__)))
     ndisplay_config_path.set(abs_path)
 
-def update_progressbar(value, max_value, start_time):
-    progressbar['value'] = value
-    progressbar['maximum'] = max_value
+
+def _update_progressbar_ui(value, max_value, start_time):
+    progressbar["value"] = value
+    progressbar["maximum"] = max_value
+
+    if value <= 0 or max_value <= 0:
+        progress_label.config(text="")
+        return
+
     elapsed_time = time.time() - start_time
     remaining_time = (max_value - value) * (elapsed_time / value)
     progress_label.config(text=f"Time remaining: {int(remaining_time)} seconds")
-    # print(f"Progress bar: {value}/{max_value}")
-    # print(f"Time remaining: {int(remaining_time)} seconds")
+
+
+def update_progressbar(value, max_value, start_time):
+    # Ensure all Tkinter widget updates happen on the main thread
+    try:
+        root.after(0, _update_progressbar_ui, value, max_value, start_time)
+    except RuntimeError:
+        # In case the root window is already destroyed while a background
+        # thread is still trying to report progress, just ignore the update.
+        pass
 
 
 def run_compositor():
@@ -47,12 +61,14 @@ def run_compositor():
     if not os.path.isdir(input_dir.get()) or not os.path.isfile(ndisplay_config_path.get()):
         print("Invalid paths provided. Please provide existing paths for input directory and nDisplay config.")
         return
+
     start_time = time.time()
     main(input_dir.get(), ndisplay_config_path.get(), update_progressbar, start_time)
-    
+
     output_dir = os.path.join(input_dir.get(), "merged")
     os.startfile(output_dir)  # Open the output folder in Windows
     root.destroy()  # Close the UI
+
 
 def run_compositor_thread():
     run_thread = threading.Thread(target=run_compositor, daemon=True)
@@ -61,7 +77,7 @@ def run_compositor_thread():
 
 if __name__ == "__main__":
     root = TkinterDnD.Tk()
-    root.title("Pi nDisplay Image Compositor")
+    root.title("nDisplay Merger")
 
     input_dir = tk.StringVar()
     ndisplay_config_path = tk.StringVar()
@@ -82,7 +98,7 @@ if __name__ == "__main__":
 
     tk.Button(root, text="Run Compositor", command=run_compositor_thread).grid(row=2, column=1, pady=10)
 
-    progressbar = ttk.Progressbar(root, orient=tk.HORIZONTAL, length=300, mode='determinate')
+    progressbar = ttk.Progressbar(root, orient=tk.HORIZONTAL, length=300, mode="determinate")
     progressbar.grid(row=3, column=1, pady=5)
 
     progress_label = tk.Label(root, text="")
