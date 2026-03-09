@@ -51,6 +51,7 @@ def read_ndisplay_config(file_path):
 
 def find_images(input_dir, viewports):
     images = {}
+    # Only support LDR formats; HDR EXR is not supported to avoid losing information.
     supported_formats = [".jpeg", ".jpg", ".png"]
 
     # Exclude the synthetic 'window' key we add later
@@ -95,20 +96,31 @@ def composite_images(input_dir, viewports, images, update_progressbar=None, star
 
     for idx, frame_number in enumerate(sorted(images.keys(), key=_frame_sort_key)):
         image_files = images[frame_number]
-        output_image = Image.new("RGB", (viewports['window']['w'], viewports['window']['h']))
+        output_image = Image.new("RGB", (viewports["window"]["w"], viewports["window"]["h"]))
         level_sequence_name = None
+        output_ext = None
+
         for viewport_name, file_path in image_files.items():
-            viewport_img = Image.open(file_path)
-            x = viewports[viewport_name]['region']['x']
-            y = viewports[viewport_name]['region']['y']
-            
-            if not level_sequence_name:
+            try:
+                viewport_img = Image.open(file_path)
+            except Exception as exc:
+                raise ImageSetError(f"Failed to open image '{file_path}': {exc}") from exc
+
+            x = viewports[viewport_name]["region"]["x"]
+            y = viewports[viewport_name]["region"]["y"]
+
+            if level_sequence_name is None:
                 file_name = os.path.basename(file_path)
-                level_sequence_name = file_name.split(".")[0].split(os.path.sep)[-1]
-            
+                name_without_ext, ext = os.path.splitext(file_name)
+                level_sequence_name = name_without_ext.split(os.path.sep)[-1].split(".")[0]
+                output_ext = ext.lower()
+
             output_image.paste(viewport_img, (x, y))
-        
-        image_path = os.path.join(output_dir, f"{level_sequence_name}.{frame_number}.jpeg")
+
+        if not output_ext:
+            output_ext = ".jpeg"
+
+        image_path = os.path.join(output_dir, f"{level_sequence_name}.{frame_number}{output_ext}")
         output_image.save(image_path)
         # print(f"Saved image to {image_path}")  # Add this line
         
