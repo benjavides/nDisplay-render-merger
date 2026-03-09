@@ -3,13 +3,50 @@ import os
 import sys
 from PIL import Image
 
+
+class ConfigError(Exception):
+    pass
+
+
 def read_ndisplay_config(file_path):
-    with open(file_path, 'r') as file:
-        config_data = json.load(file)
-    
-    viewports = config_data['nDisplay']['cluster']['nodes']['Node_0']['viewports']
-    window = config_data['nDisplay']['cluster']['nodes']['Node_0']['window']
-    
+    with open(file_path, "r") as file:
+        try:
+            config_data = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"Failed to parse nDisplay config JSON: {exc}") from exc
+
+    try:
+        ndisplay = config_data["nDisplay"]
+        cluster = ndisplay["cluster"]
+        nodes = cluster["nodes"]
+
+        if not isinstance(nodes, dict) or not nodes:
+            raise KeyError("nodes")
+
+        # Pick a node deterministically (first key when sorted)
+        node_key = sorted(nodes.keys())[0]
+        node = nodes[node_key]
+
+        viewports = node["viewports"]
+        window = node["window"]
+    except (KeyError, TypeError) as exc:
+        raise ConfigError(
+            "Invalid nDisplay config structure; expected 'nDisplay.cluster.nodes[<node>].viewports' and 'window'."
+        ) from exc
+
+    try:
+        width = int(window["w"])
+        height = int(window["h"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ConfigError("Invalid window dimensions in nDisplay config.") from exc
+
+    if width <= 0 or height <= 0:
+        raise ConfigError("Window dimensions in nDisplay config must be positive.")
+
+    # Normalize window dimensions to integers while preserving original structure keys
+    window["w"] = width
+    window["h"] = height
+
     return viewports, window
 
 def find_images(input_dir, viewports):
