@@ -2,6 +2,8 @@
 
 **nDisplay Merger** helps you composite images rendered with nDisplay using Unreal Engine’s Movie Render Queue (UE 5.1+).
 
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/benjavides)
+
 When rendering nDisplay with Movie Render Queue, Unreal outputs **one image per viewport per frame** and does **not** compose the viewports according to the `Output Mapping` in the nDisplay configuration.  
 nDisplay Merger takes:
 
@@ -41,40 +43,33 @@ pip install -r requirements.txt
 
 1. **Create your nDisplay config**
    - In Unreal, set up your nDisplay configuration as usual.
+     ![nDisplay config step](./assets/image-20230417145050771.png)
    - Make sure the **Output Mapping (STEP 3)** is correctly configured – this defines how the viewports will be laid out in the final image.
    - Export the configuration as an `.ndisplay` file.
+     ![Export nDisplay config](./assets/image-20230417145134182.png)
    - The exported config is what nDisplay Merger will read.
-
+   
 2. **Render with Movie Render Queue (nDisplay)**
    - Use Movie Render Queue with your nDisplay setup (UE 5.1+).
+     ![Movie Render Queue setup](./assets/image-20230417145432511.png)
    - The render output should be a folder containing images named per viewport and frame (e.g. `LevelSequence.Segmento0.0001.jpeg`).
-
+   
+     ![Movie Render Queue settings](./assets/image-20230417145547068.png)
+   
 3. **Run the nDisplay Merger app**
    - Launch the compiled executable `nDisplayMerger.exe` (see “Compile to Executable” below) or run the `ui.py` script with Python.
    - In the UI:
      - Select the **input directory**: the folder that contains the rendered images.
      - Select the **nDisplay config**: the exported `.ndisplay` file.
    - Click **“Run Compositor”**.
-
+     ![nDisplay Merger UI](./assets/image-20230417145652092.png)
+   
 4. **Review the result**
    - The tool creates a `merged` subfolder inside the input directory.
    - You will get **one composed image per frame**, following the Output Mapping from the config.
+     ![Merged frame result](./assets/image-20230417150432899.png)
 
-Screenshots from the original instructions (for reference):
 
-![nDisplay config step](./assets/image-20230417145050771.png)
-
-![Export nDisplay config](./assets/image-20230417145134182.png)
-
-![Movie Render Queue setup](./assets/image-20230417145432511.png)
-
-![Movie Render Queue settings](./assets/image-20230417145547068.png)
-
-![nDisplay Merger UI](./assets/image-20230417145652092.png)
-
-Example of merged output per frame:
-
-![Merged frame result](./assets/image-20230417150432899.png)
 
 ---
 
