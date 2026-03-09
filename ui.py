@@ -1,6 +1,9 @@
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, ttk, messagebox
+
 from tkinterdnd2 import TkinterDnD
+
+from errors import ConfigError, ImageSetError
 from nDisplayMerger import main
 import os
 import time
@@ -54,16 +57,32 @@ def update_progressbar(value, max_value, start_time):
 
 def run_compositor():
     if not input_dir.get() or not ndisplay_config_path.get():
-        print("Please provide valid paths for input directory and nDisplay config.")
+        messagebox.showerror(
+            "nDisplay Merger",
+            "Please provide valid paths for input directory and nDisplay config.",
+        )
         return
 
     # Check if the provided paths exist
     if not os.path.isdir(input_dir.get()) or not os.path.isfile(ndisplay_config_path.get()):
-        print("Invalid paths provided. Please provide existing paths for input directory and nDisplay config.")
+        messagebox.showerror(
+            "nDisplay Merger",
+            "Invalid paths provided. Please provide existing paths for input directory and nDisplay config.",
+        )
         return
 
     start_time = time.time()
-    main(input_dir.get(), ndisplay_config_path.get(), update_progressbar, start_time)
+    try:
+        main(input_dir.get(), ndisplay_config_path.get(), update_progressbar, start_time)
+    except ConfigError as exc:
+        messagebox.showerror("nDisplay Merger - Config Error", str(exc))
+        return
+    except ImageSetError as exc:
+        messagebox.showerror("nDisplay Merger - Images Error", str(exc))
+        return
+    except Exception as exc:
+        messagebox.showerror("nDisplay Merger - Error", str(exc))
+        return
 
     output_dir = os.path.join(input_dir.get(), "merged")
     os.startfile(output_dir)  # Open the output folder in Windows
