@@ -86,8 +86,10 @@ def find_images(input_dir, viewports):
 
     return images
 
-def composite_images(input_dir, viewports, images, update_progressbar=None, start_time=None):
-    output_dir = os.path.join(input_dir, "merged")
+def composite_images(input_dir, viewports, images, output_dir=None, update_progressbar=None, start_time=None):
+    if output_dir is None or output_dir == "":
+        output_dir = os.path.join(input_dir, "merged")
+
     os.makedirs(output_dir, exist_ok=True)
     
     # Process frames in a deterministic order
@@ -127,14 +129,15 @@ def composite_images(input_dir, viewports, images, update_progressbar=None, star
         if update_progressbar:
             update_progressbar(idx + 1, len(images), start_time)
 
-def main(input_dir, ndisplay_config_path, update_progressbar=None, start_time=None):
+
+def main(input_dir, ndisplay_config_path, update_progressbar=None, start_time=None, output_dir=None):
     viewports, window = read_ndisplay_config(ndisplay_config_path)
     viewports["window"] = window
     images = find_images(input_dir, viewports)
     if update_progressbar:
-        composite_images(input_dir, viewports, images, update_progressbar, start_time)
+        composite_images(input_dir, viewports, images, output_dir, update_progressbar, start_time)
     else:
-        composite_images(input_dir, viewports, images)
+        composite_images(input_dir, viewports, images, output_dir)
 
 
 def _build_arg_parser():
@@ -149,6 +152,12 @@ def _build_arg_parser():
         "ndisplay_config_path",
         help="Path to the exported .ndisplay config file (JSON).",
     )
+    parser.add_argument(
+        "--output-dir",
+        dest="output_dir",
+        default=None,
+        help="Optional output directory. If not provided, a 'merged' folder will be created inside the input directory.",
+    )
     return parser
 
 
@@ -157,7 +166,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     try:
-        main(args.input_dir, args.ndisplay_config_path)
+        main(args.input_dir, args.ndisplay_config_path, output_dir=args.output_dir)
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(2)
