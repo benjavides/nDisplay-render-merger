@@ -27,7 +27,9 @@ HELP_LEGACY = (
     "again from the start. Start/End frame (inclusive integers) limit which frames are exported; "
     "they update automatically when input and config paths are valid. "
     "While running, the status line shows e.g. “Merging frame 15 (1/11)” — frame id and batch progress. "
-    "Use Run / Pause / Resume next to Stop (footer) to control the job for the active tab."
+    "Use Run / Pause / Resume next to Stop (footer) to control the job for the active tab.\n\n"
+    "Frames merge in parallel (one process per CPU, up to 16). Pause applies between frames "
+    "while workers finish; use CLI --jobs 1 for fully sequential mid-frame pause."
 )
 
 HELP_STEREO = (
@@ -41,7 +43,8 @@ HELP_STEREO = (
     "Pause may occur while a frame is being built; when you resume, that frame is processed "
     "again from the start. Start/End frame (inclusive integers) limit export; they update when "
     "both eye folders are valid. While running, status shows e.g. “Merging frame 15 (1/11)”. "
-    "Run / Pause / Resume is next to Stop in the footer."
+    "Run / Pause / Resume is next to Stop in the footer.\n\n"
+    "Frames process in parallel (CPU-based). Pause takes effect between frames. CLI: --jobs 1 for sequential."
 )
 
 
@@ -648,6 +651,9 @@ def build_ui(root):
 
 
 if __name__ == "__main__":
+    import multiprocessing
+
+    multiprocessing.freeze_support()
     root = TkinterDnD.Tk()
     root.title("nDisplay Merger")
     root.resizable(False, False)

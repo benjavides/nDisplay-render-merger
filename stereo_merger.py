@@ -1,5 +1,6 @@
 import os
 import re
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 import numpy as np
 import py360convert
@@ -7,7 +8,7 @@ from PIL import Image
 
 from errors import ImageSetError
 
-from nDisplayMerger import wait_if_paused
+from nDisplayMerger import _default_max_workers, wait_if_paused
 
 _SUPPORTED_EXTS = (".jpeg", ".jpg", ".png")
 
@@ -192,6 +193,27 @@ def _cubemap_to_equirect(face_to_path):
     return Image.fromarray(out, mode="RGB")
 
 
+def _stereo_merge_one_frame(payload):
+    """Process-pool worker: one stereo frame (same algorithm as sequential path)."""
+    left_paths = payload["left_paths"]
+    right_paths = payload["right_paths"]
+    out_path = payload["out_path"]
+
+    left_equi = _cubemap_to_equirect(left_paths)
+    right_equi = _cubemap_to_equirect(right_paths)
+    w, h = left_equi.size
+    if right_equi.size != (w, h):
+        raise ImageSetError(
+            f"Left and right equirectangular outputs differ in size "
+            f"({w}x{h} vs {right_equi.size[0]}x{right_equi.size[1]})."
+        )
+
+    stacked = Image.new("RGB", (w, h * 2))
+    stacked.paste(left_equi, (0, 0))
+    stacked.paste(right_equi, (0, h))
+    stacked.save(out_path, format="JPEG", quality=95)
+
+
 def resolve_stereo_output_dir(left_dir, output_dir):
     """Resolved output folder: explicit path, or 'merged_stereo' beside the left eye folder's parent."""
     left_dir = os.path.abspath(left_dir)
@@ -212,6 +234,7 @@ def main(
     on_frame_status=None,
     frame_start=None,
     frame_end=None,
+    max_workers=None,
 ):
     left_by_frame = _collect_eye_folder(left_dir, "Left")
     right_by_frame = _collect_eye_folder(right_dir, "Right")
@@ -235,7 +258,100 @@ def main(
         frames = ordered
 
     total = len(frames)
+    if total == 0:
+        return
 
+    if max_workers is None:
+        max_workers = _default_max_workers()
+
+    if max_workers <= 1:
+        _stereo_main_sequential(
+            frames,
+            total,
+            left_by_frame,
+            right_by_frame,
+            out_dir,
+            update_progressbar,
+            start_time,
+            cancel_event,
+            pause_event,
+            on_frame_status,
+        )
+        return
+
+    indices_frames = list(enumerate(frames))
+    next_i = 0
+    in_flight = {}
+    done_count = 0
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        while next_i < total or in_flight:
+            while next_i < total and len(in_flight) < max_workers:
+                if cancel_event is not None and cancel_event.is_set():
+                    next_i = total
+                    break
+                if wait_if_paused(cancel_event, pause_event):
+                    continue
+                if cancel_event is not None and cancel_event.is_set():
+                    next_i = total
+                    break
+
+                idx, frame = indices_frames[next_i]
+                next_i += 1
+                left_entry = left_by_frame[frame]
+                right_entry = right_by_frame[frame]
+                level_sequence = left_entry["level_sequence"]
+                out_path = os.path.join(out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg")
+                payload = {
+                    "left_paths": dict(left_entry["paths"]),
+                    "right_paths": dict(right_entry["paths"]),
+                    "out_path": out_path,
+                }
+                fut = executor.submit(_stereo_merge_one_frame, payload)
+                in_flight[fut] = (idx, frame)
+
+            if cancel_event is not None and cancel_event.is_set():
+                if in_flight:
+                    wait(in_flight.keys())
+                    for fut in list(in_flight.keys()):
+                        idx, frame = in_flight.pop(fut)
+                        try:
+                            fut.result()
+                        except Exception:
+                            pass
+                        done_count += 1
+                        if on_frame_status is not None:
+                            on_frame_status(str(frame), idx + 1, total)
+                        if update_progressbar is not None:
+                            update_progressbar(done_count, total, start_time)
+                break
+
+            if not in_flight:
+                break
+
+            done, _ = wait(in_flight.keys(), return_when=FIRST_COMPLETED)
+            for fut in done:
+                idx, frame = in_flight.pop(fut)
+                fut.result()
+                done_count += 1
+                if on_frame_status is not None:
+                    on_frame_status(str(frame), idx + 1, total)
+                if update_progressbar is not None:
+                    update_progressbar(done_count, total, start_time)
+
+
+def _stereo_main_sequential(
+    frames,
+    total,
+    left_by_frame,
+    right_by_frame,
+    out_dir,
+    update_progressbar,
+    start_time,
+    cancel_event,
+    pause_event,
+    on_frame_status,
+):
     for idx, frame in enumerate(frames):
         if cancel_event is not None and cancel_event.is_set():
             break

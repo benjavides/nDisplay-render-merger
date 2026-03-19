@@ -3,10 +3,46 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 from PIL import Image
 
 from errors import ConfigError, ImageSetError
+
+
+def _default_max_workers():
+    return min(16, max(1, os.cpu_count() or 4))
+
+
+def _legacy_merge_one_frame(payload):
+    """Process-pool worker: merge one frame (same algorithm as sequential path)."""
+    output_dir = payload["output_dir"]
+    frame_number = payload["frame_number"]
+    w, h = payload["window_wh"]
+    items = payload["items"]
+
+    output_image = Image.new("RGB", (w, h))
+    level_sequence_name = None
+    output_ext = None
+    for file_path, x, y in items:
+        try:
+            viewport_img = Image.open(file_path)
+        except Exception as exc:
+            raise ImageSetError(f"Failed to open image '{file_path}': {exc}") from exc
+
+        if level_sequence_name is None:
+            file_name = os.path.basename(file_path)
+            name_without_ext, ext = os.path.splitext(file_name)
+            level_sequence_name = name_without_ext.split(os.path.sep)[-1].split(".")[0]
+            output_ext = ext.lower()
+
+        output_image.paste(viewport_img, (x, y))
+
+    if not output_ext:
+        output_ext = ".jpeg"
+
+    image_path = os.path.join(output_dir, f"{level_sequence_name}.{frame_number}{output_ext}")
+    output_image.save(image_path)
 
 
 def read_ndisplay_config(file_path):
@@ -156,6 +192,7 @@ def composite_images(
     pause_event=None,
     on_frame_status=None,
     frames_to_process=None,
+    max_workers=None,
 ):
     if output_dir is None or output_dir == "":
         output_dir = os.path.join(input_dir, "merged")
@@ -166,7 +203,107 @@ def composite_images(
         frames_to_process = sorted(images.keys(), key=_frame_sort_key)
 
     total = len(frames_to_process)
+    if total == 0:
+        return
 
+    if max_workers is None:
+        max_workers = _default_max_workers()
+
+    if max_workers <= 1:
+        _composite_images_sequential(
+            output_dir,
+            viewports,
+            images,
+            frames_to_process,
+            total,
+            update_progressbar,
+            start_time,
+            cancel_event,
+            pause_event,
+            on_frame_status,
+        )
+        return
+
+    ww, wh = viewports["window"]["w"], viewports["window"]["h"]
+    indices_frames = list(enumerate(frames_to_process))
+    next_i = 0
+    in_flight = {}
+    done_count = 0
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        while next_i < total or in_flight:
+            while next_i < total and len(in_flight) < max_workers:
+                if cancel_event is not None and cancel_event.is_set():
+                    next_i = total
+                    break
+                if wait_if_paused(cancel_event, pause_event):
+                    continue
+                if cancel_event is not None and cancel_event.is_set():
+                    next_i = total
+                    break
+
+                idx, frame_number = indices_frames[next_i]
+                next_i += 1
+                image_files = images[frame_number]
+                items = [
+                    (
+                        file_path,
+                        viewports[viewport_name]["region"]["x"],
+                        viewports[viewport_name]["region"]["y"],
+                    )
+                    for viewport_name, file_path in sorted(image_files.items())
+                ]
+                payload = {
+                    "output_dir": output_dir,
+                    "frame_number": frame_number,
+                    "window_wh": (ww, wh),
+                    "items": items,
+                }
+                fut = executor.submit(_legacy_merge_one_frame, payload)
+                in_flight[fut] = (idx, frame_number)
+
+            if cancel_event is not None and cancel_event.is_set():
+                if in_flight:
+                    wait(in_flight.keys())
+                    for fut in list(in_flight.keys()):
+                        idx, frame_number = in_flight.pop(fut)
+                        try:
+                            fut.result()
+                        except Exception:
+                            pass
+                        done_count += 1
+                        if on_frame_status is not None:
+                            on_frame_status(str(frame_number), idx + 1, total)
+                        if update_progressbar is not None:
+                            update_progressbar(done_count, total, start_time)
+                break
+
+            if not in_flight:
+                break
+
+            done, _ = wait(in_flight.keys(), return_when=FIRST_COMPLETED)
+            for fut in done:
+                idx, frame_number = in_flight.pop(fut)
+                fut.result()
+                done_count += 1
+                if on_frame_status is not None:
+                    on_frame_status(str(frame_number), idx + 1, total)
+                if update_progressbar is not None:
+                    update_progressbar(done_count, total, start_time)
+
+
+def _composite_images_sequential(
+    output_dir,
+    viewports,
+    images,
+    frames_to_process,
+    total,
+    update_progressbar,
+    start_time,
+    cancel_event,
+    pause_event,
+    on_frame_status,
+):
     for idx, frame_number in enumerate(frames_to_process):
         if cancel_event is not None and cancel_event.is_set():
             break
@@ -246,6 +383,7 @@ def main(
     on_frame_status=None,
     frame_start=None,
     frame_end=None,
+    max_workers=None,
 ):
     viewports, window = read_ndisplay_config(ndisplay_config_path)
     viewports["window"] = window
@@ -266,6 +404,7 @@ def main(
         pause_event,
         on_frame_status,
         frames_to_process,
+        max_workers,
     )
 
 
@@ -299,6 +438,13 @@ def _build_arg_parser():
         default=None,
         help="Inclusive end frame (integer). Required with --frame-start for CLI subset export.",
     )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Parallel frame workers (default: min(16, CPU count); use 1 for sequential).",
+    )
     return parser
 
 
@@ -311,22 +457,23 @@ if __name__ == "__main__":
         if (fs is None) ^ (fe is None):
             print("Both --frame-start and --frame-end are required for a subset export.", file=sys.stderr)
             sys.exit(4)
+        kw = {"output_dir": args.output_dir, "max_workers": args.jobs}
         if fs is not None:
             main(
                 args.input_dir,
                 args.ndisplay_config_path,
-                output_dir=args.output_dir,
                 frame_start=str(fs),
                 frame_end=str(fe),
+                **kw,
             )
         else:
             ordered = list_legacy_frame_keys(args.input_dir, args.ndisplay_config_path)
             main(
                 args.input_dir,
                 args.ndisplay_config_path,
-                output_dir=args.output_dir,
                 frame_start=str(ordered[0]),
                 frame_end=str(ordered[-1]),
+                **kw,
             )
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)

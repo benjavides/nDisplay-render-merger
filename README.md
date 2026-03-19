@@ -86,6 +86,8 @@ Where:
 - `.\Example\MovieRenders` is the folder with the rendered viewport images.
 - `.\Example\nDisplayConfig.ndisplay` is the exported nDisplay config file.
 
+Optional: `--jobs N` sets how many frames merge in parallel (default: up to 16 workers, capped by CPU count). Use `--jobs 1` for sequential processing.
+
 This will create a `merged` folder inside `.\Example\MovieRenders` with one composed image per frame.
 
 ---
