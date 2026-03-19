@@ -26,7 +26,7 @@ jobs:
           pip install -r dev-requirements.txt
 
       - name: Build Executable
-        run: python -m PyInstaller --onefile --windowed ui.py --additional-hooks-dir=. --name=nDisplayMerger --icon=assets\app.ico --hidden-import py360convert --hidden-import numpy
+        run: python -m PyInstaller --onefile --windowed ui.py --additional-hooks-dir=. --name=nDisplayMerger --icon=assets\app.ico --hidden-import py360convert --hidden-import numpy --hidden-import jpeg_utils --hidden-import simplejpeg
 
       - name: Create Release
         id: create_release

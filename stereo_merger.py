@@ -4,10 +4,9 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 import numpy as np
 import py360convert
-from PIL import Image
-
 from errors import ImageSetError
 
+from jpeg_utils import STEREO_JPEG_QUALITY, load_rgb_u8, save_rgb_u8_jpeg
 from nDisplayMerger import _default_max_workers, wait_if_paused
 
 _SUPPORTED_EXTS = (".jpeg", ".jpg", ".png")
@@ -159,12 +158,11 @@ def filter_stereo_frames_in_range(ordered_keys, frame_start, frame_end):
 
 
 def _load_face_rgba(path):
-    with Image.open(path) as im:
-        return np.asarray(im.convert("RGB"))
+    return load_rgb_u8(path)
 
 
 def _cubemap_to_equirect(face_to_path):
-    """face_to_path maps FRONT..DOWN to file path. Returns PIL Image RGB."""
+    """face_to_path maps FRONT..DOWN to file path. Returns H×W×3 uint8 RGB."""
     arrays = {}
     face_w = face_h = None
     for face, key in _FACE_TO_CUBE_KEY.items():
@@ -190,7 +188,7 @@ def _cubemap_to_equirect(face_to_path):
     out = py360convert.c2e(arrays, equirect_h, equirect_w, cube_format="dict")
     if out.dtype != np.uint8:
         out = np.clip(out, 0, 255).astype(np.uint8)
-    return Image.fromarray(out, mode="RGB")
+    return out
 
 
 def _stereo_merge_one_frame(payload):
@@ -201,17 +199,16 @@ def _stereo_merge_one_frame(payload):
 
     left_equi = _cubemap_to_equirect(left_paths)
     right_equi = _cubemap_to_equirect(right_paths)
-    w, h = left_equi.size
-    if right_equi.size != (w, h):
+    h, w = left_equi.shape[:2]
+    if right_equi.shape[:2] != (h, w):
+        rh, rw = right_equi.shape[:2]
         raise ImageSetError(
             f"Left and right equirectangular outputs differ in size "
-            f"({w}x{h} vs {right_equi.size[0]}x{right_equi.size[1]})."
+            f"({w}x{h} vs {rw}x{rh})."
         )
 
-    stacked = Image.new("RGB", (w, h * 2))
-    stacked.paste(left_equi, (0, 0))
-    stacked.paste(right_equi, (0, h))
-    stacked.save(out_path, format="JPEG", quality=95)
+    stacked = np.vstack((left_equi, right_equi))
+    save_rgb_u8_jpeg(out_path, stacked, STEREO_JPEG_QUALITY)
 
 
 def resolve_stereo_output_dir(left_dir, output_dir):
@@ -380,11 +377,12 @@ def _stereo_main_sequential(
                 break
 
             right_equi = _cubemap_to_equirect(right_entry["paths"])
-            w, h = left_equi.size
-            if right_equi.size != (w, h):
+            h, w = left_equi.shape[:2]
+            if right_equi.shape[:2] != (h, w):
+                rh, rw = right_equi.shape[:2]
                 raise ImageSetError(
                     f"Frame {frame}: left and right equirectangular outputs differ in size "
-                    f"({w}x{h} vs {right_equi.size[0]}x{right_equi.size[1]})."
+                    f"({w}x{h} vs {rw}x{rh})."
                 )
 
             if cancel_event is not None and cancel_event.is_set():
@@ -394,12 +392,10 @@ def _stereo_main_sequential(
             if cancel_event is not None and cancel_event.is_set():
                 break
 
-            stacked = Image.new("RGB", (w, h * 2))
-            stacked.paste(left_equi, (0, 0))
-            stacked.paste(right_equi, (0, h))
+            stacked = np.vstack((left_equi, right_equi))
 
             out_path = os.path.join(out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg")
-            stacked.save(out_path, format="JPEG", quality=95)
+            save_rgb_u8_jpeg(out_path, stacked, STEREO_JPEG_QUALITY)
 
             if update_progressbar:
                 update_progressbar(idx + 1, total, start_time)

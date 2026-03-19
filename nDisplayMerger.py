@@ -5,13 +5,29 @@ import sys
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
-from PIL import Image
+import numpy as np
 
 from errors import ConfigError, ImageSetError
+from jpeg_utils import PIL_DEFAULT_JPEG_QUALITY, load_rgb_u8, save_rgb_u8_jpeg
 
 
 def _default_max_workers():
     return min(16, max(1, os.cpu_count() or 4))
+
+
+def _paste_rgb_into_canvas(canvas, arr, x, y):
+    """Paste viewport RGB into canvas; clips like PIL Image.paste(im, (x, y))."""
+    ch, cw = canvas.shape[0], canvas.shape[1]
+    vh, vw = arr.shape[0], arr.shape[1]
+    x1 = max(0, x)
+    y1 = max(0, y)
+    x2 = min(cw, x + vw)
+    y2 = min(ch, y + vh)
+    if x1 >= x2 or y1 >= y2:
+        return
+    sx1 = x1 - x
+    sy1 = y1 - y
+    canvas[y1:y2, x1:x2] = arr[sy1 : sy1 + (y2 - y1), sx1 : sx1 + (x2 - x1)]
 
 
 def _legacy_merge_one_frame(payload):
@@ -21,12 +37,12 @@ def _legacy_merge_one_frame(payload):
     w, h = payload["window_wh"]
     items = payload["items"]
 
-    output_image = Image.new("RGB", (w, h))
+    canvas = np.zeros((h, w, 3), dtype=np.uint8)
     level_sequence_name = None
     output_ext = None
     for file_path, x, y in items:
         try:
-            viewport_img = Image.open(file_path)
+            arr = load_rgb_u8(file_path)
         except Exception as exc:
             raise ImageSetError(f"Failed to open image '{file_path}': {exc}") from exc
 
@@ -36,13 +52,13 @@ def _legacy_merge_one_frame(payload):
             level_sequence_name = name_without_ext.split(os.path.sep)[-1].split(".")[0]
             output_ext = ext.lower()
 
-        output_image.paste(viewport_img, (x, y))
+        _paste_rgb_into_canvas(canvas, arr, x, y)
 
     if not output_ext:
         output_ext = ".jpeg"
 
     image_path = os.path.join(output_dir, f"{level_sequence_name}.{frame_number}{output_ext}")
-    output_image.save(image_path)
+    save_rgb_u8_jpeg(image_path, canvas, PIL_DEFAULT_JPEG_QUALITY)
 
 
 def read_ndisplay_config(file_path):
@@ -321,7 +337,8 @@ def _composite_images_sequential(
             if cancel_event is not None and cancel_event.is_set():
                 break
 
-            output_image = Image.new("RGB", (viewports["window"]["w"], viewports["window"]["h"]))
+            ww, wh = viewports["window"]["w"], viewports["window"]["h"]
+            canvas = np.zeros((wh, ww, 3), dtype=np.uint8)
             level_sequence_name = None
             output_ext = None
             restart_frame = False
@@ -336,7 +353,7 @@ def _composite_images_sequential(
                     restart_frame = True
                     break
                 try:
-                    viewport_img = Image.open(file_path)
+                    arr = load_rgb_u8(file_path)
                 except Exception as exc:
                     raise ImageSetError(f"Failed to open image '{file_path}': {exc}") from exc
 
@@ -349,7 +366,7 @@ def _composite_images_sequential(
                     level_sequence_name = name_without_ext.split(os.path.sep)[-1].split(".")[0]
                     output_ext = ext.lower()
 
-                output_image.paste(viewport_img, (x, y))
+                _paste_rgb_into_canvas(canvas, arr, x, y)
 
             if cancel_event is not None and cancel_event.is_set():
                 break
@@ -365,7 +382,7 @@ def _composite_images_sequential(
                 output_ext = ".jpeg"
 
             image_path = os.path.join(output_dir, f"{level_sequence_name}.{frame_number}{output_ext}")
-            output_image.save(image_path)
+            save_rgb_u8_jpeg(image_path, canvas, PIL_DEFAULT_JPEG_QUALITY)
 
             if update_progressbar:
                 update_progressbar(idx + 1, total, start_time)

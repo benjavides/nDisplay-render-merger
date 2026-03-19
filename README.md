@@ -20,7 +20,7 @@ and produces **one merged image per frame**, laid out exactly as defined in the 
 
 - **Python 3.9+** (tested with 3.9/3.10)
 - Unreal Engine **5.1 or later** (for Movie Render Queue with nDisplay)
-- The Python dependencies in `requirements.txt`
+- The Python dependencies in `requirements.txt` (includes **simplejpeg** / libjpeg-turbo for faster JPEG read/write during merges)
 
 Create and activate a virtual environment (recommended):
 
