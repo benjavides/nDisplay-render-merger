@@ -7,6 +7,8 @@ from PIL import Image
 
 from errors import ImageSetError
 
+from nDisplayMerger import wait_if_paused
+
 _SUPPORTED_EXTS = (".jpeg", ".jpg", ".png")
 
 # Viewport substring tokens (case-insensitive via token matching)
@@ -114,6 +116,47 @@ def _validate_frames_and_faces(left_by_frame, right_by_frame):
         raise ImageSetError("Incomplete cubemap face sets:\n" + "\n".join(errors))
 
 
+def list_paired_stereo_frames(left_dir, right_dir):
+    """Sorted common frame keys after full stereo validation (for UI auto-fill)."""
+    left_by_frame = _collect_eye_folder(left_dir, "Left")
+    right_by_frame = _collect_eye_folder(right_dir, "Right")
+    if not left_by_frame or not right_by_frame:
+        raise ImageSetError(
+            "No valid cubemap face images found. Filenames must look like "
+            "'{LevelSequence}.{Viewport}.{Frame}.jpeg' and the viewport must contain "
+            "exactly one of: BACK, LEFT, FRONT, RIGHT, UP, DOWN (as separate tokens)."
+        )
+    _validate_frames_and_faces(left_by_frame, right_by_frame)
+    return sorted(left_by_frame.keys(), key=_frame_sort_key)
+
+
+def filter_stereo_frames_in_range(ordered_keys, frame_start, frame_end):
+    start_s = str(frame_start).strip()
+    end_s = str(frame_end).strip()
+    if not start_s or not end_s:
+        raise ImageSetError("Start frame and end frame must be set.")
+    try:
+        start_i = int(start_s)
+        end_i = int(end_s)
+    except ValueError as exc:
+        raise ImageSetError("Start and end frame must be integers.") from exc
+    if start_i > end_i:
+        raise ImageSetError(f"Start frame ({start_i}) must be <= end frame ({end_i}).")
+    non_digit = [f for f in ordered_keys if not str(f).isdigit()]
+    if non_digit:
+        raise ImageSetError(
+            "Frame range export requires numeric frame numbers only; "
+            f"non-numeric frames present: {', '.join(map(str, non_digit[:5]))}"
+            + (" …" if len(non_digit) > 5 else "")
+        )
+    filtered = [f for f in ordered_keys if start_i <= int(f) <= end_i]
+    if not filtered:
+        raise ImageSetError(
+            f"No frames fall in range {start_i}–{end_i} (inclusive) for the current image set."
+        )
+    return filtered
+
+
 def _load_face_rgba(path):
     with Image.open(path) as im:
         return np.asarray(im.convert("RGB"))
@@ -165,6 +208,10 @@ def main(
     update_progressbar=None,
     start_time=None,
     cancel_event=None,
+    pause_event=None,
+    on_frame_status=None,
+    frame_start=None,
+    frame_end=None,
 ):
     left_by_frame = _collect_eye_folder(left_dir, "Left")
     right_by_frame = _collect_eye_folder(right_dir, "Right")
@@ -181,32 +228,63 @@ def main(
     out_dir = resolve_stereo_output_dir(left_dir, output_dir)
     os.makedirs(out_dir, exist_ok=True)
 
-    frames = sorted(left_by_frame.keys(), key=_frame_sort_key)
+    ordered = sorted(left_by_frame.keys(), key=_frame_sort_key)
+    if frame_start is not None and frame_end is not None:
+        frames = filter_stereo_frames_in_range(ordered, frame_start, frame_end)
+    else:
+        frames = ordered
+
     total = len(frames)
 
     for idx, frame in enumerate(frames):
         if cancel_event is not None and cancel_event.is_set():
             break
 
+        if on_frame_status is not None:
+            on_frame_status(str(frame), idx + 1, total)
+
         left_entry = left_by_frame[frame]
         right_entry = right_by_frame[frame]
         level_sequence = left_entry["level_sequence"]
 
-        left_equi = _cubemap_to_equirect(left_entry["paths"])
-        right_equi = _cubemap_to_equirect(right_entry["paths"])
-        w, h = left_equi.size
-        if right_equi.size != (w, h):
-            raise ImageSetError(
-                f"Frame {frame}: left and right equirectangular outputs differ in size "
-                f"({w}x{h} vs {right_equi.size[0]}x{right_equi.size[1]})."
-            )
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if wait_if_paused(cancel_event, pause_event):
+                continue
+            if cancel_event is not None and cancel_event.is_set():
+                break
 
-        stacked = Image.new("RGB", (w, h * 2))
-        stacked.paste(left_equi, (0, 0))
-        stacked.paste(right_equi, (0, h))
+            left_equi = _cubemap_to_equirect(left_entry["paths"])
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if wait_if_paused(cancel_event, pause_event):
+                continue
+            if cancel_event is not None and cancel_event.is_set():
+                break
 
-        out_path = os.path.join(out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg")
-        stacked.save(out_path, format="JPEG", quality=95)
+            right_equi = _cubemap_to_equirect(right_entry["paths"])
+            w, h = left_equi.size
+            if right_equi.size != (w, h):
+                raise ImageSetError(
+                    f"Frame {frame}: left and right equirectangular outputs differ in size "
+                    f"({w}x{h} vs {right_equi.size[0]}x{right_equi.size[1]})."
+                )
 
-        if update_progressbar:
-            update_progressbar(idx + 1, total, start_time)
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if wait_if_paused(cancel_event, pause_event):
+                continue
+            if cancel_event is not None and cancel_event.is_set():
+                break
+
+            stacked = Image.new("RGB", (w, h * 2))
+            stacked.paste(left_equi, (0, 0))
+            stacked.paste(right_equi, (0, h))
+
+            out_path = os.path.join(out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg")
+            stacked.save(out_path, format="JPEG", quality=95)
+
+            if update_progressbar:
+                update_progressbar(idx + 1, total, start_time)
+            break

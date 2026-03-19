@@ -8,16 +8,26 @@ from tkinter import filedialog, messagebox, ttk
 from tkinterdnd2 import TkinterDnD
 
 from errors import ConfigError, ImageSetError
-from nDisplayMerger import main as run_legacy_merger
-from stereo_merger import main as run_stereo_merger, resolve_stereo_output_dir
+from nDisplayMerger import list_legacy_frame_keys, main as run_legacy_merger
+from stereo_merger import (
+    list_paired_stereo_frames,
+    main as run_stereo_merger,
+    resolve_stereo_output_dir,
+)
 
 SETTINGS_PATH = os.path.join(os.getcwd(), "settings.json")
+_RANGE_REFRESH_MS = 400
 
 HELP_LEGACY = (
     "Standard Config Merger takes rendered nDisplay viewports and places them on a canvas "
     "according to the Output Mapping in the provided .ndisplay config.\n\n"
     "Assumptions: files must be named so the viewport name and frame number can be parsed, "
-    "for example:\n{LevelSequence}.{ViewportName}.{FrameNumber}.jpeg"
+    "for example:\n{LevelSequence}.{ViewportName}.{FrameNumber}.jpeg\n\n"
+    "Pause may occur while a frame is being built; when you resume, that frame is processed "
+    "again from the start. Start/End frame (inclusive integers) limit which frames are exported; "
+    "they update automatically when input and config paths are valid. "
+    "While running, the status line shows e.g. “Merging frame 15 (1/11)” — frame id and batch progress. "
+    "Use Run / Pause / Resume next to Stop (footer) to control the job for the active tab."
 )
 
 HELP_STEREO = (
@@ -27,7 +37,11 @@ HELP_STEREO = (
     "• Both input folders must contain the same temporal frames.\n"
     "• Viewport names must include these face identifiers: BACK, LEFT, FRONT, RIGHT, UP, DOWN "
     "(matched as separate tokens; case-insensitive).\n"
-    "• All 6 face images for a frame must be square and the same resolution."
+    "• All 6 face images for a frame must be square and the same resolution.\n\n"
+    "Pause may occur while a frame is being built; when you resume, that frame is processed "
+    "again from the start. Start/End frame (inclusive integers) limit export; they update when "
+    "both eye folders are valid. While running, status shows e.g. “Merging frame 15 (1/11)”. "
+    "Run / Pause / Resume is next to Stop in the footer."
 )
 
 
@@ -69,16 +83,23 @@ def _norm_drop_path(data):
 
 def build_ui(root):
     cancel_event = threading.Event()
+    pause_event = threading.Event()
 
     settings = load_settings()
 
     legacy_input_dir = tk.StringVar(value=settings.get("legacy_input_dir", ""))
     legacy_ndisplay = tk.StringVar(value=settings.get("legacy_ndisplay", ""))
     legacy_output_dir = tk.StringVar(value=settings.get("legacy_output_dir", ""))
+    legacy_frame_start = tk.StringVar(value=settings.get("legacy_frame_start", ""))
+    legacy_frame_end = tk.StringVar(value=settings.get("legacy_frame_end", ""))
 
     stereo_left_dir = tk.StringVar(value=settings.get("stereo_left_dir", ""))
     stereo_right_dir = tk.StringVar(value=settings.get("stereo_right_dir", ""))
     stereo_output_dir = tk.StringVar(value=settings.get("stereo_output_dir", ""))
+    stereo_frame_start = tk.StringVar(value=settings.get("stereo_frame_start", ""))
+    stereo_frame_end = tk.StringVar(value=settings.get("stereo_frame_end", ""))
+
+    worker_running = [False]
 
     def persist_settings():
         save_settings(
@@ -86,9 +107,13 @@ def build_ui(root):
                 "legacy_input_dir": legacy_input_dir.get(),
                 "legacy_ndisplay": legacy_ndisplay.get(),
                 "legacy_output_dir": legacy_output_dir.get(),
+                "legacy_frame_start": legacy_frame_start.get(),
+                "legacy_frame_end": legacy_frame_end.get(),
                 "stereo_left_dir": stereo_left_dir.get(),
                 "stereo_right_dir": stereo_right_dir.get(),
                 "stereo_output_dir": stereo_output_dir.get(),
+                "stereo_frame_start": stereo_frame_start.get(),
+                "stereo_frame_end": stereo_frame_end.get(),
             }
         )
 
@@ -114,19 +139,36 @@ def build_ui(root):
 
     footer = ttk.Frame(main_frame)
     footer.grid(row=1, column=0, sticky="ew", pady=(12, 0))
-    footer.columnconfigure(1, weight=1)
+    footer.columnconfigure(2, weight=1)
 
     stop_btn = ttk.Button(footer, text="Stop", state=tk.DISABLED)
     stop_btn.grid(row=0, column=0, sticky="w", padx=(0, 8))
 
+    run_pause_resume_btn = ttk.Button(footer, text="Run", width=10)
+    run_pause_resume_btn.grid(row=0, column=1, sticky="w", padx=(0, 8))
+
     progressbar = ttk.Progressbar(footer, orient=tk.HORIZONTAL, length=300, mode="determinate")
-    progressbar.grid(row=0, column=1, sticky="ew")
+    progressbar.grid(row=0, column=2, sticky="ew")
+
+    frame_status_label = tk.Label(footer, text="")
+    frame_status_label.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
     progress_label = tk.Label(footer, text="")
-    progress_label.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+    progress_label.grid(row=2, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
-    run_legacy_btn = None
-    run_stereo_btn = None
+    def set_buttons_idle():
+        worker_running[0] = False
+        stop_btn.config(state=tk.DISABLED)
+        run_pause_resume_btn.config(text="Run", state=tk.NORMAL)
+
+    def set_buttons_running():
+        worker_running[0] = True
+        stop_btn.config(state=tk.NORMAL)
+        run_pause_resume_btn.config(text="Pause", state=tk.NORMAL)
+
+    def set_buttons_paused():
+        stop_btn.config(state=tk.NORMAL)
+        run_pause_resume_btn.config(text="Resume", state=tk.NORMAL)
 
     def _update_progressbar_ui(value, max_value, start_time):
         progressbar["value"] = value
@@ -150,15 +192,88 @@ def build_ui(root):
         except RuntimeError:
             pass
 
+    def update_frame_status(frame_key, current_index, total_in_range):
+        """frame_key = sequence id from files; current_index/total = 1-based position in export batch."""
+        def _do():
+            frame_status_label.config(
+                text=f"Merging frame {frame_key} ({current_index}/{total_in_range})"
+            )
+
+        try:
+            root.after(0, _do)
+        except RuntimeError:
+            pass
+
     def reset_progress_ui():
         progressbar["value"] = 0
         progressbar["maximum"] = 0
         progress_label.config(text="")
+        frame_status_label.config(text="")
 
     def on_stop():
+        pause_event.clear()
         cancel_event.set()
 
+    def on_pause():
+        pause_event.set()
+        set_buttons_paused()
+
+    def on_resume():
+        pause_event.clear()
+        set_buttons_running()
+
     stop_btn.config(command=on_stop)
+
+    # --- debounced range refresh ---
+    legacy_refresh_after = [None]
+    stereo_refresh_after = [None]
+
+    def _try_refresh_legacy_range():
+        legacy_refresh_after[0] = None
+        inp = legacy_input_dir.get().strip()
+        cfg = legacy_ndisplay.get().strip()
+        if not inp or not cfg or not os.path.isdir(inp) or not os.path.isfile(cfg):
+            return
+        try:
+            keys = list_legacy_frame_keys(inp, cfg)
+            legacy_frame_start.set(str(keys[0]))
+            legacy_frame_end.set(str(keys[-1]))
+        except (ConfigError, ImageSetError, OSError):
+            pass
+
+    def _schedule_legacy_range_refresh(*_):
+        if legacy_refresh_after[0] is not None:
+            try:
+                root.after_cancel(legacy_refresh_after[0])
+            except tk.TclError:
+                pass
+        legacy_refresh_after[0] = root.after(_RANGE_REFRESH_MS, _try_refresh_legacy_range)
+
+    def _try_refresh_stereo_range():
+        stereo_refresh_after[0] = None
+        left_p = stereo_left_dir.get().strip()
+        right_p = stereo_right_dir.get().strip()
+        if not left_p or not right_p or not os.path.isdir(left_p) or not os.path.isdir(right_p):
+            return
+        try:
+            keys = list_paired_stereo_frames(left_p, right_p)
+            stereo_frame_start.set(str(keys[0]))
+            stereo_frame_end.set(str(keys[-1]))
+        except (ImageSetError, OSError):
+            pass
+
+    def _schedule_stereo_range_refresh(*_):
+        if stereo_refresh_after[0] is not None:
+            try:
+                root.after_cancel(stereo_refresh_after[0])
+            except tk.TclError:
+                pass
+        stereo_refresh_after[0] = root.after(_RANGE_REFRESH_MS, _try_refresh_stereo_range)
+
+    legacy_input_dir.trace_add("write", _schedule_legacy_range_refresh)
+    legacy_ndisplay.trace_add("write", _schedule_legacy_range_refresh)
+    stereo_left_dir.trace_add("write", _schedule_stereo_range_refresh)
+    stereo_right_dir.trace_add("write", _schedule_stereo_range_refresh)
 
     # --- Legacy tab ---
     row_pad_y = 4
@@ -243,8 +358,20 @@ def build_ui(root):
     legacy_output_dir.trace_add("write", _on_legacy_out_change)
     _on_legacy_out_change()
 
-    run_legacy_btn = ttk.Button(tab_legacy, text="Run")
-    run_legacy_btn.grid(row=row, column=1, pady=(4, 8), sticky="w")
+    ttk.Label(tab_legacy, text="Start frame:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    tk.Entry(tab_legacy, textvariable=legacy_frame_start, width=50).grid(
+        row=row, column=1, sticky="w", pady=row_pad_y
+    )
+    row += 1
+
+    ttk.Label(tab_legacy, text="End frame:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    tk.Entry(tab_legacy, textvariable=legacy_frame_end, width=50).grid(
+        row=row, column=1, sticky="w", pady=row_pad_y
+    )
     row += 1
 
     # --- Stereo tab ---
@@ -329,18 +456,25 @@ def build_ui(root):
     stereo_output_dir.trace_add("write", _on_stereo_out_change)
     _on_stereo_out_change()
 
-    run_stereo_btn = ttk.Button(tab_stereo, text="Run")
-    run_stereo_btn.grid(row=row, column=1, pady=(4, 8), sticky="w")
+    ttk.Label(tab_stereo, text="Start frame:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    tk.Entry(tab_stereo, textvariable=stereo_frame_start, width=50).grid(
+        row=row, column=1, sticky="w", pady=row_pad_y
+    )
+    row += 1
 
-    def set_running(running):
-        state_run = tk.DISABLED if running else tk.NORMAL
-        state_stop = tk.NORMAL if running else tk.DISABLED
-        run_legacy_btn.config(state=state_run)
-        run_stereo_btn.config(state=state_run)
-        stop_btn.config(state=state_stop)
+    ttk.Label(tab_stereo, text="End frame:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    tk.Entry(tab_stereo, textvariable=stereo_frame_end, width=50).grid(
+        row=row, column=1, sticky="w", pady=row_pad_y
+    )
+    row += 1
 
     def finish_job_ui(cancelled=False):
-        set_running(False)
+        pause_event.clear()
+        set_buttons_idle()
         if cancelled:
             progress_label.config(text="Cancelled")
 
@@ -363,6 +497,10 @@ def build_ui(root):
                 start_time=start_time,
                 output_dir=legacy_output_dir.get().strip() or None,
                 cancel_event=cancel_event,
+                pause_event=pause_event,
+                on_frame_status=update_frame_status,
+                frame_start=legacy_frame_start.get().strip(),
+                frame_end=legacy_frame_end.get().strip(),
             )
             cancelled = cancel_event.is_set()
             if not cancelled:
@@ -402,13 +540,18 @@ def build_ui(root):
                 "Invalid paths provided. Please provide existing paths for input directory and nDisplay config.",
             )
             return
+        if not legacy_frame_start.get().strip() or not legacy_frame_end.get().strip():
+            messagebox.showerror(
+                "nDisplay Merger",
+                "Set start and end frame (they fill automatically when paths are valid).",
+            )
+            return
         persist_settings()
         cancel_event.clear()
+        pause_event.clear()
         reset_progress_ui()
-        set_running(True)
+        set_buttons_running()
         threading.Thread(target=run_legacy_worker, daemon=True).start()
-
-    run_legacy_btn.config(command=run_legacy)
 
     def run_stereo_worker():
         start_time = time.time()
@@ -425,6 +568,10 @@ def build_ui(root):
                 update_progressbar=update_progressbar,
                 start_time=start_time,
                 cancel_event=cancel_event,
+                pause_event=pause_event,
+                on_frame_status=update_frame_status,
+                frame_start=stereo_frame_start.get().strip(),
+                frame_end=stereo_frame_end.get().strip(),
             )
             cancelled = cancel_event.is_set()
             if not cancelled:
@@ -460,19 +607,44 @@ def build_ui(root):
                 "Invalid paths: both eye directories must exist.",
             )
             return
+        if not stereo_frame_start.get().strip() or not stereo_frame_end.get().strip():
+            messagebox.showerror(
+                "Stereo VR Merger",
+                "Set start and end frame (they fill automatically when paths are valid).",
+            )
+            return
         persist_settings()
         cancel_event.clear()
+        pause_event.clear()
         reset_progress_ui()
-        set_running(True)
+        set_buttons_running()
         threading.Thread(target=run_stereo_worker, daemon=True).start()
 
-    run_stereo_btn.config(command=run_stereo)
+    def on_run_pause_resume():
+        if not worker_running[0]:
+            tab_idx = notebook.index(notebook.select())
+            if tab_idx == 0:
+                run_legacy()
+            else:
+                run_stereo()
+        elif pause_event.is_set():
+            on_resume()
+        else:
+            on_pause()
+
+    run_pause_resume_btn.config(command=on_run_pause_resume)
 
     def on_closing():
         persist_settings()
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
+
+    def _startup_range_refresh():
+        _try_refresh_legacy_range()
+        _try_refresh_stereo_range()
+
+    root.after(100, _startup_range_refresh)
 
 
 if __name__ == "__main__":
