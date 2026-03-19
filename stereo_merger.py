@@ -46,9 +46,11 @@ def _parse_stereo_image_path(input_dir, file_name):
     if not lower.endswith(_SUPPORTED_EXTS):
         return None
     parts = file_name.split(".")
-    if len(parts) != 4:
+    if len(parts) < 4:
         return None
-    level_sequence, viewport, frame_number, ext = parts
+    frame_number = parts[-2]
+    viewport = parts[-3]
+    level_sequence = ".".join(parts[:-3])
     face = _face_from_viewport(viewport)
     if face is None:
         return None

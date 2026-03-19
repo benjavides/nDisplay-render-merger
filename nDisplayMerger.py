@@ -49,7 +49,11 @@ def _legacy_merge_one_frame(payload):
         if level_sequence_name is None:
             file_name = os.path.basename(file_path)
             name_without_ext, ext = os.path.splitext(file_name)
-            level_sequence_name = name_without_ext.split(os.path.sep)[-1].split(".")[0]
+            level_sequence_name, _vp = _legacy_level_and_viewport_from_stem(name_without_ext)
+            if level_sequence_name is None:
+                raise ImageSetError(
+                    f"Cannot parse level sequence / viewport from filename '{file_name}'."
+                )
             output_ext = ext.lower()
 
         _paste_rgb_into_canvas(canvas, arr, x, y)
@@ -107,6 +111,17 @@ def _frame_sort_key(frame):
     return int(frame) if str(frame).isdigit() else frame
 
 
+def _legacy_level_and_viewport_from_stem(name_without_ext):
+    """MRQ-style stem: {level}.{viewport}.{frame} — level may contain dots."""
+    base = name_without_ext.split(os.path.sep)[-1]
+    parts = base.split(".")
+    if len(parts) < 3:
+        return None, None
+    level_sequence_name = ".".join(parts[:-2])
+    viewport_name = parts[-2]
+    return level_sequence_name, viewport_name
+
+
 def find_images(input_dir, viewports):
     images = {}
     # Only support LDR formats; HDR EXR is not supported to avoid losing information.
@@ -120,7 +135,14 @@ def find_images(input_dir, viewports):
         if file_ext in supported_formats:
             for viewport_name in expected_viewports:
                 if f".{viewport_name}." in file_name:
-                    level_sequence_name, viewport, frame_number, _ = file_name.split(".")
+                    parts = file_name.split(".")
+                    if len(parts) < 4:
+                        continue
+                    frame_number = parts[-2]
+                    viewport = parts[-3]
+                    if viewport != viewport_name:
+                        continue
+                    level_sequence_name = ".".join(parts[:-3])
                     if frame_number not in images:
                         images[frame_number] = {}
                     images[frame_number][viewport] = os.path.join(input_dir, file_name)
@@ -363,7 +385,11 @@ def _composite_images_sequential(
                 if level_sequence_name is None:
                     file_name = os.path.basename(file_path)
                     name_without_ext, ext = os.path.splitext(file_name)
-                    level_sequence_name = name_without_ext.split(os.path.sep)[-1].split(".")[0]
+                    level_sequence_name, _vp = _legacy_level_and_viewport_from_stem(name_without_ext)
+                    if level_sequence_name is None:
+                        raise ImageSetError(
+                            f"Cannot parse level sequence / viewport from filename '{file_name}'."
+                        )
                     output_ext = ext.lower()
 
                 _paste_rgb_into_canvas(canvas, arr, x, y)

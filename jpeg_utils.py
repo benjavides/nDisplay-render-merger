@@ -24,22 +24,6 @@ def turbo_available():
     return _HAS_SIMPLEJPEG
 
 
-def open_merge_image(path):
-    """Open image for nDisplay merge (JPEG: turbo decode → RGB PIL; else Pillow)."""
-    from PIL import Image
-
-    ext = os.path.splitext(path)[1].lower()
-    if ext in (".jpg", ".jpeg") and _HAS_SIMPLEJPEG:
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-            arr = simplejpeg.decode_jpeg(data, colorspace="RGB")
-            return Image.fromarray(arr, mode="RGB")
-        except Exception:
-            pass
-    return Image.open(path)
-
-
 def load_rgb_u8(path):
     """RGB uint8 array H×W×3 for stereo cubemap faces."""
     import numpy as np

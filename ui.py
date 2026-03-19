@@ -17,6 +17,7 @@ from stereo_merger import (
 
 SETTINGS_PATH = os.path.join(os.getcwd(), "settings.json")
 _RANGE_REFRESH_MS = 400
+_MAX_UI_WORKERS = 32
 
 HELP_LEGACY = (
     "Standard Config Merger takes rendered nDisplay viewports and places them on a canvas "
@@ -28,8 +29,9 @@ HELP_LEGACY = (
     "they update automatically when input and config paths are valid. "
     "While running, the status line shows e.g. “Merging frame 15 (1/11)” — frame id and batch progress. "
     "Use Run / Pause / Resume next to Stop (footer) to control the job for the active tab.\n\n"
-    "Frames merge in parallel (one process per CPU, up to 16). Pause applies between frames "
-    "while workers finish; use CLI --jobs 1 for fully sequential mid-frame pause."
+    "Workers sets how many frames merge in parallel (separate processes). Pause applies between "
+    "frames while workers finish. From the command line, use --jobs N on nDisplayMerger.py "
+    "(default there is still CPU-based, up to 16); use --jobs 1 for fully sequential processing."
 )
 
 HELP_STEREO = (
@@ -44,7 +46,9 @@ HELP_STEREO = (
     "again from the start. Start/End frame (inclusive integers) limit export; they update when "
     "both eye folders are valid. While running, status shows e.g. “Merging frame 15 (1/11)”. "
     "Run / Pause / Resume is next to Stop in the footer.\n\n"
-    "Frames process in parallel (CPU-based). Pause takes effect between frames. CLI: --jobs 1 for sequential."
+    "Workers sets parallel frame jobs (each job is memory-heavy: cubemap→equirect via py360convert). "
+    "Use a low count (e.g. 1–2) for large cubemap faces to avoid running out of RAM. "
+    "Pause takes effect between frames."
 )
 
 
@@ -84,6 +88,16 @@ def _norm_drop_path(data):
     return os.path.abspath(path)
 
 
+def _parse_workers_ui(raw):
+    try:
+        n = int(str(raw).strip())
+    except ValueError:
+        return None
+    if n < 1 or n > _MAX_UI_WORKERS:
+        return None
+    return n
+
+
 def build_ui(root):
     cancel_event = threading.Event()
     pause_event = threading.Event()
@@ -102,6 +116,13 @@ def build_ui(root):
     stereo_frame_start = tk.StringVar(value=settings.get("stereo_frame_start", ""))
     stereo_frame_end = tk.StringVar(value=settings.get("stereo_frame_end", ""))
 
+    legacy_max_workers = tk.StringVar(
+        value=str(settings.get("legacy_max_workers", 4))
+    )
+    stereo_max_workers = tk.StringVar(
+        value=str(settings.get("stereo_max_workers", 2))
+    )
+
     worker_running = [False]
 
     def persist_settings():
@@ -117,6 +138,8 @@ def build_ui(root):
                 "stereo_output_dir": stereo_output_dir.get(),
                 "stereo_frame_start": stereo_frame_start.get(),
                 "stereo_frame_end": stereo_frame_end.get(),
+                "legacy_max_workers": legacy_max_workers.get(),
+                "stereo_max_workers": stereo_max_workers.get(),
             }
         )
 
@@ -377,6 +400,18 @@ def build_ui(root):
     )
     row += 1
 
+    ttk.Label(tab_legacy, text="Workers:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    ttk.Spinbox(
+        tab_legacy,
+        from_=1,
+        to=_MAX_UI_WORKERS,
+        textvariable=legacy_max_workers,
+        width=6,
+    ).grid(row=row, column=1, sticky="w", pady=row_pad_y)
+    row += 1
+
     # --- Stereo tab ---
     row = 0
 
@@ -475,10 +510,23 @@ def build_ui(root):
     )
     row += 1
 
+    ttk.Label(tab_stereo, text="Workers:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    ttk.Spinbox(
+        tab_stereo,
+        from_=1,
+        to=_MAX_UI_WORKERS,
+        textvariable=stereo_max_workers,
+        width=6,
+    ).grid(row=row, column=1, sticky="w", pady=row_pad_y)
+    row += 1
+
     def finish_job_ui(cancelled=False):
         pause_event.clear()
         set_buttons_idle()
         if cancelled:
+            reset_progress_ui()
             progress_label.config(text="Cancelled")
 
     def open_dir_on_main(path):
@@ -487,7 +535,7 @@ def build_ui(root):
         except OSError:
             pass
 
-    def run_legacy_worker():
+    def run_legacy_worker(max_workers):
         start_time = time.time()
         cancelled = False
         err_title = err_msg = None
@@ -504,6 +552,7 @@ def build_ui(root):
                 on_frame_status=update_frame_status,
                 frame_start=legacy_frame_start.get().strip(),
                 frame_end=legacy_frame_end.get().strip(),
+                max_workers=max_workers,
             )
             cancelled = cancel_event.is_set()
             if not cancelled:
@@ -549,14 +598,21 @@ def build_ui(root):
                 "Set start and end frame (they fill automatically when paths are valid).",
             )
             return
+        nw = _parse_workers_ui(legacy_max_workers.get())
+        if nw is None:
+            messagebox.showerror(
+                "nDisplay Merger",
+                f"Workers must be an integer from 1 to {_MAX_UI_WORKERS}.",
+            )
+            return
         persist_settings()
         cancel_event.clear()
         pause_event.clear()
         reset_progress_ui()
         set_buttons_running()
-        threading.Thread(target=run_legacy_worker, daemon=True).start()
+        threading.Thread(target=run_legacy_worker, args=(nw,), daemon=True).start()
 
-    def run_stereo_worker():
+    def run_stereo_worker(max_workers):
         start_time = time.time()
         cancelled = False
         err_title = err_msg = None
@@ -575,6 +631,7 @@ def build_ui(root):
                 on_frame_status=update_frame_status,
                 frame_start=stereo_frame_start.get().strip(),
                 frame_end=stereo_frame_end.get().strip(),
+                max_workers=max_workers,
             )
             cancelled = cancel_event.is_set()
             if not cancelled:
@@ -616,12 +673,19 @@ def build_ui(root):
                 "Set start and end frame (they fill automatically when paths are valid).",
             )
             return
+        nw = _parse_workers_ui(stereo_max_workers.get())
+        if nw is None:
+            messagebox.showerror(
+                "Stereo VR Merger",
+                f"Workers must be an integer from 1 to {_MAX_UI_WORKERS}.",
+            )
+            return
         persist_settings()
         cancel_event.clear()
         pause_event.clear()
         reset_progress_ui()
         set_buttons_running()
-        threading.Thread(target=run_stereo_worker, daemon=True).start()
+        threading.Thread(target=run_stereo_worker, args=(nw,), daemon=True).start()
 
     def on_run_pause_resume():
         if not worker_running[0]:
