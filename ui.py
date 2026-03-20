@@ -10,10 +10,18 @@ from tkinterdnd2 import TkinterDnD
 from errors import ConfigError, ImageSetError
 from nDisplayMerger import list_legacy_frame_keys, main as run_legacy_merger
 from stereo_merger import (
+    StereoOutputMode,
+    coerce_stereo_output_mode,
     list_paired_stereo_frames,
     main as run_stereo_merger,
     resolve_stereo_output_dir,
 )
+
+_STEREO_MODE_LABEL_TO_VALUE = {
+    "Equirectangular stereo (over/under)": StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER.value,
+    "Equirectangular mono": StereoOutputMode.EQUIRECTANGULAR_MONO_SEPARATE_EYES.value,
+}
+_STEREO_MODE_VALUE_TO_LABEL = {v: k for k, v in _STEREO_MODE_LABEL_TO_VALUE.items()}
 
 SETTINGS_PATH = os.path.join(os.getcwd(), "settings.json")
 _RANGE_REFRESH_MS = 400
@@ -35,8 +43,12 @@ HELP_LEGACY = (
 )
 
 HELP_STEREO = (
-    "Stereo VR Merger converts 6 cubemap faces per eye into an equirectangular projection "
-    "and stacks them over-under (left eye on top, right eye on bottom).\n\n"
+    "Stereo VR Merger converts 6 cubemap faces per eye into an equirectangular projection.\n\n"
+    "Output mode:\n"
+    "• Equirectangular stereo (over/under) — one JPEG per frame with left eye on top and right eye on bottom "
+    "({LevelSequence}.StereoEquirect.{Frame}.jpeg in the output folder).\n"
+    "• Equirectangular mono — one equirectangular JPEG per eye per frame, under output_folder/left_eye/ "
+    "and output_folder/right_eye/ ({LevelSequence}.Equirect.{Frame}.jpeg in each).\n\n"
     "Assumptions:\n"
     "• Both input folders must contain the same temporal frames.\n"
     "• Viewport names must include these face identifiers: BACK, LEFT, FRONT, RIGHT, UP, DOWN "
@@ -122,6 +134,15 @@ def build_ui(root):
     stereo_max_workers = tk.StringVar(
         value=str(settings.get("stereo_max_workers", 2))
     )
+    _saved_stereo_mode = coerce_stereo_output_mode(
+        settings.get("stereo_output_mode")
+    ).value
+    stereo_mode_var = tk.StringVar(
+        value=_STEREO_MODE_VALUE_TO_LABEL.get(
+            _saved_stereo_mode,
+            "Equirectangular stereo (over/under)",
+        )
+    )
 
     worker_running = [False]
 
@@ -138,6 +159,10 @@ def build_ui(root):
                 "stereo_output_dir": stereo_output_dir.get(),
                 "stereo_frame_start": stereo_frame_start.get(),
                 "stereo_frame_end": stereo_frame_end.get(),
+                "stereo_output_mode": _STEREO_MODE_LABEL_TO_VALUE.get(
+                    stereo_mode_var.get(),
+                    StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER.value,
+                ),
                 "legacy_max_workers": legacy_max_workers.get(),
                 "stereo_max_workers": stereo_max_workers.get(),
             }
@@ -459,6 +484,19 @@ def build_ui(root):
     )
     row += 1
 
+    ttk.Label(tab_stereo, text="Output mode:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    stereo_mode_combo = ttk.Combobox(
+        tab_stereo,
+        textvariable=stereo_mode_var,
+        values=list(_STEREO_MODE_LABEL_TO_VALUE.keys()),
+        state="readonly",
+        width=47,
+    )
+    stereo_mode_combo.grid(row=row, column=1, columnspan=2, sticky="w", pady=row_pad_y)
+    row += 1
+
     ttk.Label(tab_stereo, text="Output Directory (optional):").grid(
         row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
     )
@@ -477,22 +515,28 @@ def build_ui(root):
     )
     row += 1
 
-    stereo_hint = tk.Label(
-        tab_stereo,
-        text="If left empty, output goes to 'merged_stereo' next to the left eye folder's parent path.",
-        fg="gray",
-    )
-    stereo_hint.grid(row=row, column=1, sticky="w", pady=(0, 6))
+    stereo_hint = tk.Label(tab_stereo, text="", fg="gray", wraplength=520, justify="left")
+    stereo_hint.grid(row=row, column=1, columnspan=2, sticky="w", pady=(0, 6))
     row += 1
 
-    def _on_stereo_out_change(*_):
+    def _refresh_stereo_hint(*_):
         if stereo_output_dir.get().strip():
             stereo_hint.grid_remove()
+            return
+        stereo_hint.grid()
+        if stereo_mode_var.get() == "Equirectangular mono":
+            stereo_hint.config(
+                text="If left empty, base output is 'merged_stereo' next to the left eye folder's parent; "
+                "equirectangular mono writes under that folder's left_eye/ and right_eye/ subfolders."
+            )
         else:
-            stereo_hint.grid()
+            stereo_hint.config(
+                text="If left empty, output goes to 'merged_stereo' next to the left eye folder's parent path."
+            )
 
-    stereo_output_dir.trace_add("write", _on_stereo_out_change)
-    _on_stereo_out_change()
+    stereo_output_dir.trace_add("write", _refresh_stereo_hint)
+    stereo_mode_var.trace_add("write", _refresh_stereo_hint)
+    _refresh_stereo_hint()
 
     ttk.Label(tab_stereo, text="Start frame:").grid(
         row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
@@ -620,6 +664,12 @@ def build_ui(root):
         left_p = stereo_left_dir.get()
         right_p = stereo_right_dir.get()
         try:
+            stereo_mode = coerce_stereo_output_mode(
+                _STEREO_MODE_LABEL_TO_VALUE.get(
+                    stereo_mode_var.get(),
+                    StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER.value,
+                )
+            )
             run_stereo_merger(
                 left_p,
                 right_p,
@@ -632,6 +682,7 @@ def build_ui(root):
                 frame_start=stereo_frame_start.get().strip(),
                 frame_end=stereo_frame_end.get().strip(),
                 max_workers=max_workers,
+                output_mode=stereo_mode,
             )
             cancelled = cancel_event.is_set()
             if not cancelled:

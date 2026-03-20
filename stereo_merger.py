@@ -1,6 +1,7 @@
 import os
 import re
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from enum import Enum
 
 import numpy as np
 import py360convert
@@ -22,6 +23,31 @@ _FACE_TO_CUBE_KEY = {
     "UP": "U",
     "DOWN": "D",
 }
+
+
+class StereoOutputMode(str, Enum):
+    """
+    How stereo VR equirectangular output is written. Member values are stable for settings JSON.
+    EQUIRECTANGULAR_* leaves room for future CUBEMAP_* modes without renaming.
+    """
+
+    EQUIRECTANGULAR_STEREO_OVER_UNDER = "equirectangular_stereo_over_under"
+    """Single stacked image: left eye on top, right eye on bottom."""
+
+    EQUIRECTANGULAR_MONO_SEPARATE_EYES = "equirectangular_mono_separate_eyes"
+    """One equirectangular JPEG per eye under left_eye/ and right_eye/."""
+
+
+def coerce_stereo_output_mode(value):
+    """Return a StereoOutputMode; invalid or missing values default to over/under."""
+    if isinstance(value, StereoOutputMode):
+        return value
+    if value is None or (isinstance(value, str) and not str(value).strip()):
+        return StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER
+    try:
+        return StereoOutputMode(str(value).strip())
+    except ValueError:
+        return StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER
 
 
 def _frame_sort_key(frame):
@@ -193,24 +219,64 @@ def _cubemap_to_equirect(face_to_path):
     return out
 
 
-def _stereo_merge_one_frame(payload):
-    """Process-pool worker: one stereo frame (same algorithm as sequential path)."""
-    left_paths = payload["left_paths"]
-    right_paths = payload["right_paths"]
-    out_path = payload["out_path"]
-
-    left_equi = _cubemap_to_equirect(left_paths)
-    right_equi = _cubemap_to_equirect(right_paths)
+def _save_stereo_equirect_outputs(
+    left_equi,
+    right_equi,
+    output_mode: StereoOutputMode,
+    *,
+    out_path=None,
+    out_left_path=None,
+    out_right_path=None,
+    frame_label=None,
+):
     h, w = left_equi.shape[:2]
     if right_equi.shape[:2] != (h, w):
         rh, rw = right_equi.shape[:2]
-        raise ImageSetError(
-            f"Left and right equirectangular outputs differ in size "
+        msg = (
+            "Left and right equirectangular outputs differ in size "
             f"({w}x{h} vs {rw}x{rh})."
         )
+        if frame_label is not None:
+            msg = f"Frame {frame_label}: left and right equirectangular outputs differ in size ({w}x{h} vs {rw}x{rh})."
+        raise ImageSetError(msg)
 
-    stacked = np.vstack((left_equi, right_equi))
-    save_rgb_u8_jpeg(out_path, stacked, STEREO_JPEG_QUALITY)
+    if output_mode == StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER:
+        stacked = np.vstack((left_equi, right_equi))
+        save_rgb_u8_jpeg(out_path, stacked, STEREO_JPEG_QUALITY)
+    elif output_mode == StereoOutputMode.EQUIRECTANGULAR_MONO_SEPARATE_EYES:
+        save_rgb_u8_jpeg(out_left_path, left_equi, STEREO_JPEG_QUALITY)
+        save_rgb_u8_jpeg(out_right_path, right_equi, STEREO_JPEG_QUALITY)
+    else:
+        raise ImageSetError(f"Unsupported stereo output mode: {output_mode!r}")
+
+
+def _stereo_merge_one_frame(payload):
+    """Process-pool worker: one stereo frame (same algorithm as sequential path)."""
+    output_mode = StereoOutputMode(payload["output_mode"])
+    left_paths = payload["left_paths"]
+    right_paths = payload["right_paths"]
+    frame_label = payload.get("frame")
+
+    left_equi = _cubemap_to_equirect(left_paths)
+    right_equi = _cubemap_to_equirect(right_paths)
+
+    if output_mode == StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER:
+        _save_stereo_equirect_outputs(
+            left_equi,
+            right_equi,
+            output_mode,
+            out_path=payload["out_path"],
+            frame_label=frame_label,
+        )
+    else:
+        _save_stereo_equirect_outputs(
+            left_equi,
+            right_equi,
+            output_mode,
+            out_left_path=payload["out_left_path"],
+            out_right_path=payload["out_right_path"],
+            frame_label=frame_label,
+        )
 
 
 def resolve_stereo_output_dir(left_dir, output_dir):
@@ -234,7 +300,10 @@ def main(
     frame_start=None,
     frame_end=None,
     max_workers=None,
+    output_mode=StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER,
 ):
+    output_mode = coerce_stereo_output_mode(output_mode)
+
     left_by_frame = _collect_eye_folder(left_dir, "Left")
     right_by_frame = _collect_eye_folder(right_dir, "Right")
 
@@ -249,6 +318,11 @@ def main(
 
     out_dir = resolve_stereo_output_dir(left_dir, output_dir)
     os.makedirs(out_dir, exist_ok=True)
+    out_dir_left = os.path.join(out_dir, "left_eye")
+    out_dir_right = os.path.join(out_dir, "right_eye")
+    if output_mode == StereoOutputMode.EQUIRECTANGULAR_MONO_SEPARATE_EYES:
+        os.makedirs(out_dir_left, exist_ok=True)
+        os.makedirs(out_dir_right, exist_ok=True)
 
     ordered = sorted(left_by_frame.keys(), key=_frame_sort_key)
     if frame_start is not None and frame_end is not None:
@@ -270,6 +344,9 @@ def main(
             left_by_frame,
             right_by_frame,
             out_dir,
+            out_dir_left,
+            out_dir_right,
+            output_mode,
             update_progressbar,
             start_time,
             cancel_event,
@@ -300,12 +377,20 @@ def main(
                 left_entry = left_by_frame[frame]
                 right_entry = right_by_frame[frame]
                 level_sequence = left_entry["level_sequence"]
-                out_path = os.path.join(out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg")
                 payload = {
+                    "output_mode": output_mode.value,
                     "left_paths": dict(left_entry["paths"]),
                     "right_paths": dict(right_entry["paths"]),
-                    "out_path": out_path,
+                    "frame": str(frame),
                 }
+                if output_mode == StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER:
+                    payload["out_path"] = os.path.join(
+                        out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg"
+                    )
+                else:
+                    base_name = f"{level_sequence}.Equirect.{frame}.jpeg"
+                    payload["out_left_path"] = os.path.join(out_dir_left, base_name)
+                    payload["out_right_path"] = os.path.join(out_dir_right, base_name)
                 fut = executor.submit(_stereo_merge_one_frame, payload)
                 in_flight[fut] = (idx, frame)
 
@@ -345,6 +430,9 @@ def _stereo_main_sequential(
     left_by_frame,
     right_by_frame,
     out_dir,
+    out_dir_left,
+    out_dir_right,
+    output_mode,
     update_progressbar,
     start_time,
     cancel_event,
@@ -379,13 +467,6 @@ def _stereo_main_sequential(
                 break
 
             right_equi = _cubemap_to_equirect(right_entry["paths"])
-            h, w = left_equi.shape[:2]
-            if right_equi.shape[:2] != (h, w):
-                rh, rw = right_equi.shape[:2]
-                raise ImageSetError(
-                    f"Frame {frame}: left and right equirectangular outputs differ in size "
-                    f"({w}x{h} vs {rw}x{rh})."
-                )
 
             if cancel_event is not None and cancel_event.is_set():
                 break
@@ -394,10 +475,27 @@ def _stereo_main_sequential(
             if cancel_event is not None and cancel_event.is_set():
                 break
 
-            stacked = np.vstack((left_equi, right_equi))
-
-            out_path = os.path.join(out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg")
-            save_rgb_u8_jpeg(out_path, stacked, STEREO_JPEG_QUALITY)
+            if output_mode == StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER:
+                out_path = os.path.join(
+                    out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg"
+                )
+                _save_stereo_equirect_outputs(
+                    left_equi,
+                    right_equi,
+                    output_mode,
+                    out_path=out_path,
+                    frame_label=str(frame),
+                )
+            else:
+                base_name = f"{level_sequence}.Equirect.{frame}.jpeg"
+                _save_stereo_equirect_outputs(
+                    left_equi,
+                    right_equi,
+                    output_mode,
+                    out_left_path=os.path.join(out_dir_left, base_name),
+                    out_right_path=os.path.join(out_dir_right, base_name),
+                    frame_label=str(frame),
+                )
 
             if update_progressbar:
                 update_progressbar(idx + 1, total, start_time)

@@ -3,7 +3,7 @@
 **nDisplay Merger** helps you composite images rendered with nDisplay using Unreal Engine’s Movie Render Queue (UE 5.1+). The desktop app (`ui.py` / `nDisplayMerger.exe`) has **two tabs**:
 
 1. **Config Merger** — stitches nDisplay viewports into one image per frame using your `.ndisplay` **Output Mapping** (original workflow).
-2. **Stereo VR Merger** — takes **left eye** and **right eye** cubemap renders (six square face images per eye per frame), runs them through **[py360convert](https://github.com/sunset1995/py360convert)** (cube map → equirectangular), and writes **over/under** stereo JPEGs (left on top, right on bottom).
+2. **Stereo VR Merger** — takes **left eye** and **right eye** cubemap renders (six square face images per eye per frame), runs them through **[py360convert](https://github.com/sunset1995/py360convert)** (cube map → equirectangular). Choose **output mode**: **Equirectangular stereo (over/under)** for one stacked JPEG per frame, or **Equirectangular mono** for separate equirectangular JPEGs per eye under `left_eye/` and `right_eye/`.
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/benjavides)
 
@@ -21,14 +21,23 @@ Rendered filenames are expected to follow Movie Render Queue style: tokens separ
 
 ![nDisplay Merger output mapping](./assets/image-20230415000442107.png)
 
-### Stereo VR Merger (cubemap → stereo equirectangular)
+### Stereo VR Merger (cubemap → equirectangular)
 
 Use this when you have **two folders** of cubemap face renders:
 
 - **Left eye directory** — for each frame, six images whose viewport names include the face tokens **FRONT**, **BACK**, **LEFT**, **RIGHT**, **UP**, **DOWN** (matched as separate words; case-insensitive).
 - **Right eye directory** — the **same frame numbers** and the same face layout as the left folder.
 
-Naming is the same tail pattern as above: `{LevelSequence}.{ViewportWithFaceToken}.{Frame}.{jpeg|jpg|png}`. The tool pairs frames across both folders and writes `{LevelSequence}.StereoEquirect.{Frame}.jpeg` to the output folder (or `merged_stereo` next to the parent of the left eye folder if you leave output empty).
+Naming is the same tail pattern as above: `{LevelSequence}.{ViewportWithFaceToken}.{Frame}.{jpeg|jpg|png}`. The tool pairs frames across both folders.
+
+**Output modes** (GUI **Output mode** dropdown, or `output_mode` when calling `stereo_merger.main` in Python):
+
+| Mode | Files |
+|------|--------|
+| **Equirectangular stereo (over/under)** | One JPEG per frame: left eye on top, right on bottom — `{LevelSequence}.StereoEquirect.{Frame}.jpeg` in the output folder. |
+| **Equirectangular mono** | One equirectangular JPEG per eye: `{LevelSequence}.Equirect.{Frame}.jpeg` in `{output}/left_eye/` and the same basename in `{output}/right_eye/`. |
+
+If you leave **output** empty, the base folder defaults to `merged_stereo` next to the parent of the left eye folder (mono mode still creates `left_eye` and `right_eye` inside that base folder).
 
 **Memory:** each stereo frame uses a lot of RAM inside `py360convert` (especially at 2K/4K face resolution). In the UI, use a low **Workers** value (often 1–2) on this tab if you see out-of-memory issues. Stereo conversion is invoked from the GUI or by calling `stereo_merger.main(...)` in Python; there is no separate stereo CLI entry point.
 
@@ -91,7 +100,7 @@ Launch `nDisplayMerger.exe` (see **Compile to Executable**) or `python ui.py`. U
 #### Stereo VR Merger tab
 
 1. Render **left** and **right** cubemap face sequences into **two separate folders** (same frame numbering; six faces per frame per eye, with FRONT/BACK/LEFT/RIGHT/UP/DOWN in the viewport token, as in the in-app help).
-2. Choose **Left eye** and **Right eye** directories, optional **output** path, frame range, and **Workers** (keep low for heavy resolutions).
+2. Choose **Left eye** and **Right eye** directories, **Output mode** (over/under stereo vs per-eye mono), optional **output** path, frame range, and **Workers** (keep low for heavy resolutions).
 3. Click **Run** and open the output folder when the job finishes.
 
 
