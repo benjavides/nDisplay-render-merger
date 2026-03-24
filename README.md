@@ -17,7 +17,7 @@ This tab takes:
 
 and produces **one merged image per frame**, laid out exactly as defined in the nDisplay config.
 
-Rendered filenames are expected to follow Movie Render Queue style: tokens separated by dots, with **viewport** and **frame** as the last segments before the extension (e.g. `MyShot_01.05.Segmento0.0001.jpeg` — the level/sequence part may contain dots).
+**Input** and **output naming** use Movie Render Queue–style templates with `{placeholders}` (type `{` in the UI for a keyword list). The input template must include `{camera_name}`, `{frame_number}`, and `{ext}` (`.jpeg`, `.jpg`, or `.png` only; **EXR is not supported**). Defaults: input `{sequence_name}.{camera_name}.{frame_number}.{ext}`, output `{sequence_name}.{frame_number}.{ext}`. Every output placeholder must appear in the input template; merged output uses the same image format as the inputs (PNG or JPEG).
 
 ![nDisplay Merger output mapping](./assets/image-20230415000442107.png)
 
@@ -28,16 +28,18 @@ Use this when you have **two folders** of cubemap face renders:
 - **Left eye directory** — for each frame, six images whose viewport names include the face tokens **FRONT**, **BACK**, **LEFT**, **RIGHT**, **UP**, **DOWN** (matched as separate words; case-insensitive).
 - **Right eye directory** — the **same frame numbers** and the same face layout as the left folder.
 
-Naming is the same tail pattern as above: `{LevelSequence}.{ViewportWithFaceToken}.{Frame}.{jpeg|jpg|png}`. The tool pairs frames across both folders.
+Use **Input naming** / **Output naming** with `{camera_name}`, `{frame_number}`, `{ext}`, and other MRQ tokens as needed. The `{camera_name}` segment must encode the cubemap face (FRONT, BACK, LEFT, RIGHT, UP, DOWN as separate tokens). Default input matches Config Merger: `{sequence_name}.{camera_name}.{frame_number}.{ext}`.
 
 **Output modes** (GUI **Output mode** dropdown, or `output_mode` when calling `stereo_merger.main` in Python):
 
-| Mode | Files |
-|------|--------|
-| **Equirectangular stereo (over/under)** | One JPEG per frame: left eye on top, right on bottom — `{LevelSequence}.StereoEquirect.{Frame}.jpeg` in the output folder. |
-| **Equirectangular mono** | One equirectangular JPEG per eye: `{LevelSequence}.Equirect.{Frame}.jpeg` in `{output}/left_eye/` and the same basename in `{output}/right_eye/`. |
+| Mode | Default output pattern |
+|------|-------------------------|
+| **Equirectangular stereo (over/under)** | One stacked image per frame — `{sequence_name}.StereoEquirect.{frame_number}.{ext}` (no `{eye}`). |
+| **Equirectangular mono** | One equirectangular file per eye — `{eye}/{sequence_name}.Equirect.{frame_number}.{ext}` with `{eye}` = `left_eye` or `right_eye`. |
 
-If you leave **output** empty, the base folder defaults to `merged_stereo` next to the parent of the left eye folder (mono mode still creates `left_eye` and `right_eye` inside that base folder).
+Over/under templates must not use `{eye}`; mono templates must include `{eye}`. Output format follows `{ext}` from the inputs (PNG or JPEG). EXR is not supported.
+
+If you leave **output** empty, the base folder defaults to `merged_stereo` next to the parent of the left eye folder; subfolders come from your output naming template (defaults include `left_eye` / `right_eye` for mono).
 
 **Memory:** each stereo frame uses a lot of RAM inside `py360convert` (especially at 2K/4K face resolution). In the UI, use a low **Workers** value (often 1–2) on this tab if you see out-of-memory issues. Stereo conversion is invoked from the GUI or by calling `stereo_merger.main(...)` in Python; there is no separate stereo CLI entry point.
 
@@ -89,6 +91,7 @@ Launch `nDisplayMerger.exe` (see **Compile to Executable**) or `python ui.py`. U
    
 3. **Run the merger**
    - Select the **input directory** (rendered images) and the **nDisplay config** (`.ndisplay`).
+   - Set **Input naming** and **Output naming** if your MRQ file pattern differs from the defaults.
    - Optionally set an **output directory**; otherwise output goes to a `merged` folder inside the input directory.
    - Adjust **Workers** if you want more or fewer parallel frame jobs.
      ![nDisplay Merger UI](./assets/image-20230417145652092.png)
@@ -99,8 +102,8 @@ Launch `nDisplayMerger.exe` (see **Compile to Executable**) or `python ui.py`. U
 
 #### Stereo VR Merger tab
 
-1. Render **left** and **right** cubemap face sequences into **two separate folders** (same frame numbering; six faces per frame per eye, with FRONT/BACK/LEFT/RIGHT/UP/DOWN in the viewport token, as in the in-app help).
-2. Choose **Left eye** and **Right eye** directories, **Output mode** (over/under stereo vs per-eye mono), optional **output** path, frame range, and **Workers** (keep low for heavy resolutions).
+1. Render **left** and **right** cubemap face sequences into **two separate folders** (same frame numbering; six faces per frame per eye, with FRONT/BACK/LEFT/RIGHT/UP/DOWN in the `{camera_name}` segment, as in the in-app help).
+2. Choose **Left eye** and **Right eye** directories, **Input naming** / **Output naming** (defaults match MRQ-style sequence/camera/frame/ext), **Output mode** (over/under vs per-eye mono), optional **output** path, frame range, and **Workers** (keep low for heavy resolutions).
 3. Click **Run** and open the output folder when the job finishes.
 
 

@@ -8,6 +8,18 @@ from tkinter import filedialog, messagebox, ttk
 from tkinterdnd2 import TkinterDnD
 
 from errors import ConfigError, ImageSetError
+from filename_template import (
+    DEFAULT_LEGACY_INPUT,
+    DEFAULT_LEGACY_OUTPUT,
+    DEFAULT_STEREO_INPUT,
+    DEFAULT_STEREO_OUTPUT_OVER_UNDER,
+    DEFAULT_STEREO_OUTPUT_SEPARATE,
+    INPUT_KEYWORDS_LEGACY,
+    INPUT_KEYWORDS_STEREO,
+    OUTPUT_KEYWORDS_LEGACY,
+    OUTPUT_KEYWORDS_STEREO_SEPARATE,
+)
+from naming_ui import NamingSchemeEntry
 from nDisplayMerger import list_legacy_frame_keys, main as run_legacy_merger
 from stereo_merger import (
     StereoOutputMode,
@@ -28,39 +40,35 @@ _RANGE_REFRESH_MS = 400
 _MAX_UI_WORKERS = 32
 
 HELP_LEGACY = (
-    "Standard Config Merger takes rendered nDisplay viewports and places them on a canvas "
-    "according to the Output Mapping in the provided .ndisplay config.\n\n"
-    "Assumptions: files must be named so the viewport name and frame number can be parsed, "
-    "for example:\n{LevelSequence}.{ViewportName}.{FrameNumber}.jpeg\n\n"
-    "Pause may occur while a frame is being built; when you resume, that frame is processed "
-    "again from the start. Start/End frame (inclusive integers) limit which frames are exported; "
-    "they update automatically when input and config paths are valid. "
-    "While running, the status line shows e.g. “Merging frame 15 (1/11)” — frame id and batch progress. "
-    "Use Run / Pause / Resume next to Stop (footer) to control the job for the active tab.\n\n"
-    "Workers sets how many frames merge in parallel (separate processes). Pause applies between "
-    "frames while workers finish. From the command line, use --jobs N on nDisplayMerger.py "
-    "(default there is still CPU-based, up to 16); use --jobs 1 for fully sequential processing."
+    "Standard Config Merger composites nDisplay viewports onto a canvas using the Output Mapping "
+    "from your .ndisplay config.\n\n"
+    "Input naming (Movie Render Queue style): set **Input naming** with placeholders in curly braces. "
+    "Type `{` to open a keyword list (filter by typing after the brace). The input template must include "
+    "`{camera_name}`, `{frame_number}`, and `{ext}` (.jpeg / .jpg / .png only; EXR is not supported). "
+    "Default input: `{sequence_name}.{camera_name}.{frame_number}.{ext}`.\n\n"
+    "**Output naming** must also include `{frame_number}` and `{ext}`; every placeholder there must appear "
+    "in the input template so values exist. Default output: `{sequence_name}.{frame_number}.{ext}`. "
+    "Output format follows the input extension (PNG or JPEG).\n\n"
+    "Pause may occur while a frame is being built; when you resume, that frame is processed again. "
+    "Start/End frame update when paths and templates are valid. Workers sets parallel frame jobs. "
+    "CLI: `nDisplayMerger.py` with `--jobs N` (use 1 for sequential)."
 )
 
 HELP_STEREO = (
-    "Stereo VR Merger converts 6 cubemap faces per eye into an equirectangular projection.\n\n"
-    "Output mode:\n"
-    "• Equirectangular stereo (over/under) — one JPEG per frame with left eye on top and right eye on bottom "
-    "({LevelSequence}.StereoEquirect.{Frame}.jpeg in the output folder).\n"
-    "• Equirectangular mono — one equirectangular JPEG per eye per frame, under output_folder/left_eye/ "
-    "and output_folder/right_eye/ ({LevelSequence}.Equirect.{Frame}.jpeg in each).\n\n"
-    "Assumptions:\n"
-    "• Both input folders must contain the same temporal frames.\n"
-    "• Viewport names must include these face identifiers: BACK, LEFT, FRONT, RIGHT, UP, DOWN "
-    "(matched as separate tokens; case-insensitive).\n"
-    "• All 6 face images for a frame must be square and the same resolution.\n\n"
-    "Pause may occur while a frame is being built; when you resume, that frame is processed "
-    "again from the start. Start/End frame (inclusive integers) limit export; they update when "
-    "both eye folders are valid. While running, status shows e.g. “Merging frame 15 (1/11)”. "
-    "Run / Pause / Resume is next to Stop in the footer.\n\n"
-    "Workers sets parallel frame jobs (each job is memory-heavy: cubemap→equirect via py360convert). "
-    "Use a low count (e.g. 1–2) for large cubemap faces to avoid running out of RAM. "
-    "Pause takes effect between frames."
+    "Stereo VR Merger converts 6 cubemap faces per eye to equirectangular (py360convert), then exports "
+    "over/under stereo or separate monoscopic files per eye.\n\n"
+    "Input naming: same MRQ-style `{placeholder}` pattern as Config Merger. Required: `{camera_name}`, "
+    "`{frame_number}`, `{ext}` (jpeg/jpg/png only; EXR unsupported). The `{camera_name}` segment must "
+    "contain exactly one cubemap face token as a separate word: BACK, LEFT, FRONT, RIGHT, UP, DOWN "
+    "(case-insensitive). Default input: `{sequence_name}.{camera_name}.{frame_number}.{ext}`.\n\n"
+    "Output naming: must include `{frame_number}` and `{ext}`; placeholders must appear in the input "
+    "template except `{eye}` (mono mode only). **Over/under** — do not use `{eye}`; default "
+    "`{sequence_name}.StereoEquirect.{frame_number}.{ext}`. **Equirectangular mono** — `{eye}` is "
+    "required; default `{eye}/{sequence_name}.Equirect.{frame_number}.{ext}` (`{eye}` → left_eye or "
+    "right_eye). Output extension matches inputs (PNG or JPEG).\n\n"
+    "Both eyes must share the same frame keys and the same non-camera metadata per frame. "
+    "Workers: use a low count (1–2) for large cubemap faces to limit RAM. No separate stereo CLI; "
+    "use this tab or `stereo_merger.main(...)` from Python."
 )
 
 
@@ -144,9 +152,36 @@ def build_ui(root):
         )
     )
 
+    legacy_input_naming = tk.StringVar(
+        value=settings.get("legacy_input_naming", DEFAULT_LEGACY_INPUT)
+    )
+    legacy_output_naming = tk.StringVar(
+        value=settings.get("legacy_output_naming", DEFAULT_LEGACY_OUTPUT)
+    )
+    stereo_input_naming = tk.StringVar(
+        value=settings.get("stereo_input_naming", DEFAULT_STEREO_INPUT)
+    )
+    stereo_out_ou = tk.StringVar(
+        value=settings.get(
+            "stereo_output_naming_ou", DEFAULT_STEREO_OUTPUT_OVER_UNDER
+        )
+    )
+    stereo_out_sep = tk.StringVar(
+        value=settings.get(
+            "stereo_output_naming_sep", DEFAULT_STEREO_OUTPUT_SEPARATE
+        )
+    )
+    stereo_output_naming = tk.StringVar()
+    if stereo_mode_var.get() == "Equirectangular mono":
+        stereo_output_naming.set(stereo_out_sep.get())
+    else:
+        stereo_output_naming.set(stereo_out_ou.get())
+    _prev_stereo_mode = [stereo_mode_var.get()]
+
     worker_running = [False]
 
     def persist_settings():
+        _persist_stereo_output_field_into_active_bucket()
         save_settings(
             {
                 "legacy_input_dir": legacy_input_dir.get(),
@@ -165,8 +200,33 @@ def build_ui(root):
                 ),
                 "legacy_max_workers": legacy_max_workers.get(),
                 "stereo_max_workers": stereo_max_workers.get(),
+                "legacy_input_naming": legacy_input_naming.get(),
+                "legacy_output_naming": legacy_output_naming.get(),
+                "stereo_input_naming": stereo_input_naming.get(),
+                "stereo_output_naming_ou": stereo_out_ou.get(),
+                "stereo_output_naming_sep": stereo_out_sep.get(),
             }
         )
+
+    def _persist_stereo_output_field_into_active_bucket():
+        if stereo_mode_var.get() == "Equirectangular mono":
+            stereo_out_sep.set(stereo_output_naming.get())
+        else:
+            stereo_out_ou.set(stereo_output_naming.get())
+
+    def _on_stereo_mode_change(*_):
+        prev = _prev_stereo_mode[0]
+        cur = stereo_mode_var.get()
+        if prev != cur:
+            if prev == "Equirectangular mono":
+                stereo_out_sep.set(stereo_output_naming.get())
+            else:
+                stereo_out_ou.set(stereo_output_naming.get())
+            if cur == "Equirectangular mono":
+                stereo_output_naming.set(stereo_out_sep.get())
+            else:
+                stereo_output_naming.set(stereo_out_ou.get())
+        _prev_stereo_mode[0] = cur
 
     main_frame = ttk.Frame(root, padding=(12, 12, 12, 12))
     main_frame.grid(row=0, column=0, sticky="nsew")
@@ -286,7 +346,7 @@ def build_ui(root):
         if not inp or not cfg or not os.path.isdir(inp) or not os.path.isfile(cfg):
             return
         try:
-            keys = list_legacy_frame_keys(inp, cfg)
+            keys = list_legacy_frame_keys(inp, cfg, legacy_input_naming.get().strip() or None)
             legacy_frame_start.set(str(keys[0]))
             legacy_frame_end.set(str(keys[-1]))
         except (ConfigError, ImageSetError, OSError):
@@ -307,7 +367,11 @@ def build_ui(root):
         if not left_p or not right_p or not os.path.isdir(left_p) or not os.path.isdir(right_p):
             return
         try:
-            keys = list_paired_stereo_frames(left_p, right_p)
+            keys = list_paired_stereo_frames(
+                left_p,
+                right_p,
+                stereo_input_naming.get().strip() or None,
+            )
             stereo_frame_start.set(str(keys[0]))
             stereo_frame_end.set(str(keys[-1]))
         except (ImageSetError, OSError):
@@ -323,8 +387,10 @@ def build_ui(root):
 
     legacy_input_dir.trace_add("write", _schedule_legacy_range_refresh)
     legacy_ndisplay.trace_add("write", _schedule_legacy_range_refresh)
+    legacy_input_naming.trace_add("write", _schedule_legacy_range_refresh)
     stereo_left_dir.trace_add("write", _schedule_stereo_range_refresh)
     stereo_right_dir.trace_add("write", _schedule_stereo_range_refresh)
+    stereo_input_naming.trace_add("write", _schedule_stereo_range_refresh)
 
     # --- Legacy tab ---
     row_pad_y = 4
@@ -372,6 +438,28 @@ def build_ui(root):
     ttk.Button(tab_legacy, text="Browse", command=browse_legacy_cfg).grid(
         row=row, column=2, padx=(8, 0), pady=row_pad_y
     )
+    row += 1
+
+    ttk.Label(tab_legacy, text="Input naming:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    NamingSchemeEntry(
+        tab_legacy,
+        legacy_input_naming,
+        INPUT_KEYWORDS_LEGACY,
+        width=50,
+    ).grid(row=row, column=1, columnspan=2, sticky="ew", pady=row_pad_y)
+    row += 1
+
+    ttk.Label(tab_legacy, text="Output naming:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    NamingSchemeEntry(
+        tab_legacy,
+        legacy_output_naming,
+        OUTPUT_KEYWORDS_LEGACY,
+        width=50,
+    ).grid(row=row, column=1, columnspan=2, sticky="ew", pady=row_pad_y)
     row += 1
 
     ttk.Label(tab_legacy, text="Output Directory (optional):").grid(
@@ -484,6 +572,17 @@ def build_ui(root):
     )
     row += 1
 
+    ttk.Label(tab_stereo, text="Input naming:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    NamingSchemeEntry(
+        tab_stereo,
+        stereo_input_naming,
+        INPUT_KEYWORDS_STEREO,
+        width=50,
+    ).grid(row=row, column=1, columnspan=2, sticky="ew", pady=row_pad_y)
+    row += 1
+
     ttk.Label(tab_stereo, text="Output mode:").grid(
         row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
     )
@@ -495,6 +594,18 @@ def build_ui(root):
         width=47,
     )
     stereo_mode_combo.grid(row=row, column=1, columnspan=2, sticky="w", pady=row_pad_y)
+    stereo_mode_var.trace_add("write", _on_stereo_mode_change)
+    row += 1
+
+    ttk.Label(tab_stereo, text="Output naming:").grid(
+        row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
+    )
+    NamingSchemeEntry(
+        tab_stereo,
+        stereo_output_naming,
+        OUTPUT_KEYWORDS_STEREO_SEPARATE,
+        width=50,
+    ).grid(row=row, column=1, columnspan=2, sticky="ew", pady=row_pad_y)
     row += 1
 
     ttk.Label(tab_stereo, text="Output Directory (optional):").grid(
@@ -527,7 +638,7 @@ def build_ui(root):
         if stereo_mode_var.get() == "Equirectangular mono":
             stereo_hint.config(
                 text="If left empty, base output is 'merged_stereo' next to the left eye folder's parent; "
-                "equirectangular mono writes under that folder's left_eye/ and right_eye/ subfolders."
+                "per-eye paths follow your output naming template (default uses left_eye/ and right_eye/)."
             )
         else:
             stereo_hint.config(
@@ -597,6 +708,8 @@ def build_ui(root):
                 frame_start=legacy_frame_start.get().strip(),
                 frame_end=legacy_frame_end.get().strip(),
                 max_workers=max_workers,
+                input_naming_template=legacy_input_naming.get().strip() or None,
+                output_naming_template=legacy_output_naming.get().strip() or None,
             )
             cancelled = cancel_event.is_set()
             if not cancelled:
@@ -670,6 +783,7 @@ def build_ui(root):
                     StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER.value,
                 )
             )
+            _persist_stereo_output_field_into_active_bucket()
             run_stereo_merger(
                 left_p,
                 right_p,
@@ -683,6 +797,8 @@ def build_ui(root):
                 frame_end=stereo_frame_end.get().strip(),
                 max_workers=max_workers,
                 output_mode=stereo_mode,
+                input_naming_template=stereo_input_naming.get().strip() or None,
+                output_naming_template=stereo_output_naming.get().strip() or None,
             )
             cancelled = cancel_event.is_set()
             if not cancelled:

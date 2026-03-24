@@ -8,6 +8,17 @@ import py360convert
 from errors import ImageSetError
 
 from jpeg_utils import STEREO_JPEG_QUALITY, load_rgb_u8, save_rgb_u8_jpeg
+from filename_template import (
+    DEFAULT_STEREO_INPUT,
+    DEFAULT_STEREO_OUTPUT_OVER_UNDER,
+    DEFAULT_STEREO_OUTPUT_SEPARATE,
+    dotted_ext_from_capture,
+    parse_basename_with_template,
+    precheck_input_file_ext,
+    render_output_relative,
+    validate_input_template,
+    validate_output_template,
+)
 from nDisplayMerger import _default_max_workers, wait_if_paused
 
 _SUPPORTED_EXTS = (".jpeg", ".jpg", ".png")
@@ -63,59 +74,71 @@ def _face_from_viewport(viewport_segment):
     return None
 
 
-def _parse_stereo_image_path(input_dir, file_name):
-    """
-    Expect {LevelSequence}.{Viewport}.{Frame}.{ext} with ext in supported formats.
-    Returns (level_sequence, viewport, frame, abs_path, face) or None if skipped.
-    """
-    lower = file_name.lower()
-    if not lower.endswith(_SUPPORTED_EXTS):
-        return None
-    parts = file_name.split(".")
-    if len(parts) < 4:
-        return None
-    frame_number = parts[-2]
-    viewport = parts[-3]
-    level_sequence = ".".join(parts[:-3])
-    face = _face_from_viewport(viewport)
-    if face is None:
-        return None
-    return (
-        level_sequence,
-        viewport,
-        frame_number,
-        os.path.join(input_dir, file_name),
-        face,
-    )
-
-
-def _collect_eye_folder(eye_dir, label):
-    """Build frame -> face -> abs_path. Raises ImageSetError on duplicates or ambiguity."""
+def _collect_eye_folder(eye_dir, label, input_template):
+    """Build frame -> {paths, meta, ext}. Raises ImageSetError on duplicates or ambiguity."""
     if not os.path.isdir(eye_dir):
         raise ImageSetError(f"{label} directory is not a valid folder: '{eye_dir}'.")
 
+    validate_input_template(input_template)
     by_frame = {}
     for file_name in os.listdir(eye_dir):
-        parsed = _parse_stereo_image_path(eye_dir, file_name)
-        if parsed is None:
+        try:
+            precheck_input_file_ext(file_name)
+        except ImageSetError:
             continue
-        level_sequence, viewport, frame_number, abs_path, face = parsed
-        if frame_number not in by_frame:
-            by_frame[frame_number] = {"paths": {}, "level_sequence": level_sequence}
-        frame_entry = by_frame[frame_number]
-        if frame_entry["level_sequence"] != level_sequence:
+        lower = file_name.lower()
+        if not lower.endswith(_SUPPORTED_EXTS):
+            continue
+        fields = parse_basename_with_template(input_template, file_name)
+        if not fields:
+            continue
+        cam = fields.get("camera_name")
+        fn = fields.get("frame_number")
+        ext_cap = fields.get("ext")
+        if cam is None or fn is None or not ext_cap:
+            continue
+        face = _face_from_viewport(cam)
+        if face is None:
+            continue
+        try:
+            dotted = dotted_ext_from_capture(ext_cap)
+        except ImageSetError:
+            continue
+        meta = {k: v for k, v in fields.items() if k not in ("camera_name", "ext")}
+        abs_path = os.path.join(eye_dir, file_name)
+
+        if fn not in by_frame:
+            by_frame[fn] = {"paths": {}, "meta": meta, "ext": dotted}
+        frame_entry = by_frame[fn]
+        if frame_entry["meta"] != meta:
             raise ImageSetError(
-                f"{label} eye: frame {frame_number} mixes level sequence names "
-                f"'{frame_entry['level_sequence']}' and '{level_sequence}'."
+                f"{label} eye: frame {fn} mixes metadata between files "
+                f"(e.g. '{file_name}' vs another image in the same frame)."
+            )
+        if frame_entry["ext"] != dotted:
+            raise ImageSetError(
+                f"{label} eye: frame {fn} mixes file extensions "
+                f"('{frame_entry['ext']}' vs '{dotted}')."
             )
         if face in frame_entry["paths"]:
             raise ImageSetError(
-                f"{label} eye: duplicate {face} face for frame {frame_number} "
+                f"{label} eye: duplicate {face} face for frame {fn} "
                 f"('{os.path.basename(frame_entry['paths'][face])}' vs '{file_name}')."
             )
         frame_entry["paths"][face] = abs_path
 
     return by_frame
+
+
+def _validate_stereo_lr_metadata(left_by_frame, right_by_frame):
+    for fn in left_by_frame:
+        if fn not in right_by_frame:
+            continue
+        l, r = left_by_frame[fn], right_by_frame[fn]
+        if l["meta"] != r["meta"] or l["ext"] != r["ext"]:
+            raise ImageSetError(
+                f"Frame {fn}: left and right eye folders disagree on naming metadata or extension."
+            )
 
 
 def _validate_frames_and_faces(left_by_frame, right_by_frame):
@@ -144,16 +167,18 @@ def _validate_frames_and_faces(left_by_frame, right_by_frame):
         raise ImageSetError("Incomplete cubemap face sets:\n" + "\n".join(errors))
 
 
-def list_paired_stereo_frames(left_dir, right_dir):
+def list_paired_stereo_frames(left_dir, right_dir, input_naming_template=None):
     """Sorted common frame keys after full stereo validation (for UI auto-fill)."""
-    left_by_frame = _collect_eye_folder(left_dir, "Left")
-    right_by_frame = _collect_eye_folder(right_dir, "Right")
+    inp = (input_naming_template or "").strip() or DEFAULT_STEREO_INPUT
+    left_by_frame = _collect_eye_folder(left_dir, "Left", inp)
+    right_by_frame = _collect_eye_folder(right_dir, "Right", inp)
     if not left_by_frame or not right_by_frame:
         raise ImageSetError(
-            "No valid cubemap face images found. Filenames must look like "
-            "'{LevelSequence}.{Viewport}.{Frame}.jpeg' and the viewport must contain "
-            "exactly one of: BACK, LEFT, FRONT, RIGHT, UP, DOWN (as separate tokens)."
+            "No valid cubemap face images found. Check the input naming template and ensure "
+            "each filename matches {camera_name} (with cubemap face tokens), {frame_number}, "
+            "and {ext} (.jpeg / .jpg / .png)."
         )
+    _validate_stereo_lr_metadata(left_by_frame, right_by_frame)
     _validate_frames_and_faces(left_by_frame, right_by_frame)
     return sorted(left_by_frame.keys(), key=_frame_sort_key)
 
@@ -279,6 +304,20 @@ def _stereo_merge_one_frame(payload):
         )
 
 
+def _render_fields_for_output(entry):
+    rf = dict(entry["meta"])
+    rf["ext"] = entry["ext"].lstrip(".").lower()
+    if rf["ext"] == "jpg":
+        rf["ext"] = "jpeg"
+    return rf
+
+
+def _ensure_parent_dir(path):
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+
+
 def resolve_stereo_output_dir(left_dir, output_dir):
     """Resolved output folder: explicit path, or 'merged_stereo' beside the left eye folder's parent."""
     left_dir = os.path.abspath(left_dir)
@@ -301,28 +340,46 @@ def main(
     frame_end=None,
     max_workers=None,
     output_mode=StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER,
+    input_naming_template=None,
+    output_naming_template=None,
 ):
     output_mode = coerce_stereo_output_mode(output_mode)
+    inp = (input_naming_template or "").strip() or DEFAULT_STEREO_INPUT
+    ot_raw = output_naming_template
+    if ot_raw is None or not str(ot_raw).strip():
+        out_tmpl = (
+            DEFAULT_STEREO_OUTPUT_SEPARATE
+            if output_mode == StereoOutputMode.EQUIRECTANGULAR_MONO_SEPARATE_EYES
+            else DEFAULT_STEREO_OUTPUT_OVER_UNDER
+        )
+    else:
+        out_tmpl = str(ot_raw).strip()
 
-    left_by_frame = _collect_eye_folder(left_dir, "Left")
-    right_by_frame = _collect_eye_folder(right_dir, "Right")
+    validate_input_template(inp)
+    validate_output_template(
+        out_tmpl,
+        inp,
+        merger="stereo",
+        stereo_mode_separate_eyes=(
+            output_mode == StereoOutputMode.EQUIRECTANGULAR_MONO_SEPARATE_EYES
+        ),
+    )
+
+    left_by_frame = _collect_eye_folder(left_dir, "Left", inp)
+    right_by_frame = _collect_eye_folder(right_dir, "Right", inp)
 
     if not left_by_frame or not right_by_frame:
         raise ImageSetError(
-            "No valid cubemap face images found. Filenames must look like "
-            "'{LevelSequence}.{Viewport}.{Frame}.jpeg' and the viewport must contain "
-            "exactly one of: BACK, LEFT, FRONT, RIGHT, UP, DOWN (as separate tokens)."
+            "No valid cubemap face images found. Check the input naming template and ensure "
+            "each filename matches {camera_name} (with cubemap face tokens), {frame_number}, "
+            "and {ext} (.jpeg / .jpg / .png)."
         )
 
+    _validate_stereo_lr_metadata(left_by_frame, right_by_frame)
     _validate_frames_and_faces(left_by_frame, right_by_frame)
 
     out_dir = resolve_stereo_output_dir(left_dir, output_dir)
     os.makedirs(out_dir, exist_ok=True)
-    out_dir_left = os.path.join(out_dir, "left_eye")
-    out_dir_right = os.path.join(out_dir, "right_eye")
-    if output_mode == StereoOutputMode.EQUIRECTANGULAR_MONO_SEPARATE_EYES:
-        os.makedirs(out_dir_left, exist_ok=True)
-        os.makedirs(out_dir_right, exist_ok=True)
 
     ordered = sorted(left_by_frame.keys(), key=_frame_sort_key)
     if frame_start is not None and frame_end is not None:
@@ -344,9 +401,8 @@ def main(
             left_by_frame,
             right_by_frame,
             out_dir,
-            out_dir_left,
-            out_dir_right,
             output_mode,
+            out_tmpl,
             update_progressbar,
             start_time,
             cancel_event,
@@ -376,7 +432,7 @@ def main(
                 next_i += 1
                 left_entry = left_by_frame[frame]
                 right_entry = right_by_frame[frame]
-                level_sequence = left_entry["level_sequence"]
+                rf = _render_fields_for_output(left_entry)
                 payload = {
                     "output_mode": output_mode.value,
                     "left_paths": dict(left_entry["paths"]),
@@ -384,13 +440,16 @@ def main(
                     "frame": str(frame),
                 }
                 if output_mode == StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER:
-                    payload["out_path"] = os.path.join(
-                        out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg"
-                    )
+                    rel = render_output_relative(out_tmpl, rf, eye=None)
+                    payload["out_path"] = os.path.join(out_dir, rel)
                 else:
-                    base_name = f"{level_sequence}.Equirect.{frame}.jpeg"
-                    payload["out_left_path"] = os.path.join(out_dir_left, base_name)
-                    payload["out_right_path"] = os.path.join(out_dir_right, base_name)
+                    rel_l = render_output_relative(out_tmpl, rf, eye="left_eye")
+                    rel_r = render_output_relative(out_tmpl, rf, eye="right_eye")
+                    payload["out_left_path"] = os.path.join(out_dir, rel_l)
+                    payload["out_right_path"] = os.path.join(out_dir, rel_r)
+                for k in ("out_path", "out_left_path", "out_right_path"):
+                    if k in payload:
+                        _ensure_parent_dir(payload[k])
                 fut = executor.submit(_stereo_merge_one_frame, payload)
                 in_flight[fut] = (idx, frame)
 
@@ -430,9 +489,8 @@ def _stereo_main_sequential(
     left_by_frame,
     right_by_frame,
     out_dir,
-    out_dir_left,
-    out_dir_right,
     output_mode,
+    output_template,
     update_progressbar,
     start_time,
     cancel_event,
@@ -448,7 +506,7 @@ def _stereo_main_sequential(
 
         left_entry = left_by_frame[frame]
         right_entry = right_by_frame[frame]
-        level_sequence = left_entry["level_sequence"]
+        rf = _render_fields_for_output(left_entry)
 
         while True:
             if cancel_event is not None and cancel_event.is_set():
@@ -476,9 +534,9 @@ def _stereo_main_sequential(
                 break
 
             if output_mode == StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER:
-                out_path = os.path.join(
-                    out_dir, f"{level_sequence}.StereoEquirect.{frame}.jpeg"
-                )
+                rel = render_output_relative(output_template, rf, eye=None)
+                out_path = os.path.join(out_dir, rel)
+                _ensure_parent_dir(out_path)
                 _save_stereo_equirect_outputs(
                     left_equi,
                     right_equi,
@@ -487,13 +545,18 @@ def _stereo_main_sequential(
                     frame_label=str(frame),
                 )
             else:
-                base_name = f"{level_sequence}.Equirect.{frame}.jpeg"
+                rel_l = render_output_relative(output_template, rf, eye="left_eye")
+                rel_r = render_output_relative(output_template, rf, eye="right_eye")
+                out_left_path = os.path.join(out_dir, rel_l)
+                out_right_path = os.path.join(out_dir, rel_r)
+                _ensure_parent_dir(out_left_path)
+                _ensure_parent_dir(out_right_path)
                 _save_stereo_equirect_outputs(
                     left_equi,
                     right_equi,
                     output_mode,
-                    out_left_path=os.path.join(out_dir_left, base_name),
-                    out_right_path=os.path.join(out_dir_right, base_name),
+                    out_left_path=out_left_path,
+                    out_right_path=out_right_path,
                     frame_label=str(frame),
                 )
 

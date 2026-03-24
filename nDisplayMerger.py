@@ -8,6 +8,16 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 import numpy as np
 
 from errors import ConfigError, ImageSetError
+from filename_template import (
+    DEFAULT_LEGACY_INPUT,
+    DEFAULT_LEGACY_OUTPUT,
+    dotted_ext_from_capture,
+    parse_basename_with_template,
+    precheck_input_file_ext,
+    render_output_relative,
+    validate_input_template,
+    validate_output_template,
+)
 from jpeg_utils import PIL_DEFAULT_JPEG_QUALITY, load_rgb_u8, save_rgb_u8_jpeg
 
 
@@ -32,36 +42,18 @@ def _paste_rgb_into_canvas(canvas, arr, x, y):
 
 def _legacy_merge_one_frame(payload):
     """Process-pool worker: merge one frame (same algorithm as sequential path)."""
-    output_dir = payload["output_dir"]
-    frame_number = payload["frame_number"]
     w, h = payload["window_wh"]
     items = payload["items"]
+    image_path = payload["out_path"]
 
     canvas = np.zeros((h, w, 3), dtype=np.uint8)
-    level_sequence_name = None
-    output_ext = None
     for file_path, x, y in items:
         try:
             arr = load_rgb_u8(file_path)
         except Exception as exc:
             raise ImageSetError(f"Failed to open image '{file_path}': {exc}") from exc
-
-        if level_sequence_name is None:
-            file_name = os.path.basename(file_path)
-            name_without_ext, ext = os.path.splitext(file_name)
-            level_sequence_name, _vp = _legacy_level_and_viewport_from_stem(name_without_ext)
-            if level_sequence_name is None:
-                raise ImageSetError(
-                    f"Cannot parse level sequence / viewport from filename '{file_name}'."
-                )
-            output_ext = ext.lower()
-
         _paste_rgb_into_canvas(canvas, arr, x, y)
 
-    if not output_ext:
-        output_ext = ".jpeg"
-
-    image_path = os.path.join(output_dir, f"{level_sequence_name}.{frame_number}{output_ext}")
     save_rgb_u8_jpeg(image_path, canvas, PIL_DEFAULT_JPEG_QUALITY)
 
 
@@ -111,49 +103,71 @@ def _frame_sort_key(frame):
     return int(frame) if str(frame).isdigit() else frame
 
 
-def _legacy_level_and_viewport_from_stem(name_without_ext):
-    """MRQ-style stem: {level}.{viewport}.{frame} — level may contain dots."""
-    base = name_without_ext.split(os.path.sep)[-1]
-    parts = base.split(".")
-    if len(parts) < 3:
-        return None, None
-    level_sequence_name = ".".join(parts[:-2])
-    viewport_name = parts[-2]
-    return level_sequence_name, viewport_name
+def _legacy_makedirs_for(path):
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
 
 
-def find_images(input_dir, viewports):
+def find_images(input_dir, viewports, input_template):
+    """
+    Parse each file with input_template. Returns (images, frame_metadata).
+    images[frame_number][camera_name] = path
+    frame_metadata[frame_number] = {"meta": dict, "ext": ".png"|".jpeg"}
+    """
+    validate_input_template(input_template)
     images = {}
-    # Only support LDR formats; HDR EXR is not supported to avoid losing information.
-    supported_formats = [".jpeg", ".jpg", ".png"]
-
-    # Exclude the synthetic 'window' key we add later
+    frame_metadata = {}
+    supported_formats = (".jpeg", ".jpg", ".png")
     expected_viewports = [name for name in viewports.keys() if name != "window"]
 
     for file_name in os.listdir(input_dir):
+        try:
+            precheck_input_file_ext(file_name)
+        except ImageSetError:
+            continue
         file_ext = os.path.splitext(file_name)[-1].lower()
-        if file_ext in supported_formats:
-            for viewport_name in expected_viewports:
-                if f".{viewport_name}." in file_name:
-                    parts = file_name.split(".")
-                    if len(parts) < 4:
-                        continue
-                    frame_number = parts[-2]
-                    viewport = parts[-3]
-                    if viewport != viewport_name:
-                        continue
-                    level_sequence_name = ".".join(parts[:-3])
-                    if frame_number not in images:
-                        images[frame_number] = {}
-                    images[frame_number][viewport] = os.path.join(input_dir, file_name)
-                    break
+        if file_ext not in supported_formats:
+            continue
+        fields = parse_basename_with_template(input_template, file_name)
+        if not fields:
+            continue
+        cam = fields.get("camera_name")
+        fn = fields.get("frame_number")
+        ext_cap = fields.get("ext")
+        if cam is None or fn is None or not ext_cap:
+            continue
+        if cam not in expected_viewports:
+            continue
+        try:
+            dotted = dotted_ext_from_capture(ext_cap)
+        except ImageSetError:
+            continue
+        meta = {k: v for k, v in fields.items() if k not in ("camera_name", "ext")}
+        path = os.path.join(input_dir, file_name)
+
+        if fn not in images:
+            images[fn] = {}
+            frame_metadata[fn] = {"meta": meta, "ext": dotted}
+        else:
+            md = frame_metadata[fn]
+            if md["meta"] != meta or md["ext"] != dotted:
+                raise ImageSetError(
+                    f"Frame {fn}: inconsistent naming metadata or extension between viewport files "
+                    f"(e.g. '{file_name}' vs another image for the same frame)."
+                )
+        if cam in images[fn]:
+            raise ImageSetError(
+                f"Duplicate file for frame {fn}, viewport {cam}: '{file_name}'."
+            )
+        images[fn][cam] = path
 
     if not images:
         raise ImageSetError(
-            f"No images found in '{input_dir}' for expected viewports: {', '.join(expected_viewports)}."
+            f"No images found in '{input_dir}' for expected viewports: {', '.join(expected_viewports)}. "
+            "Check the input naming template and file names."
         )
 
-    # Validate that each frame has all expected viewports
     for frame_number, image_files in images.items():
         present = set(image_files.keys())
         missing = sorted(set(expected_viewports) - present)
@@ -164,14 +178,15 @@ def find_images(input_dir, viewports):
                 f"Expected viewports: {', '.join(expected_viewports)}."
             )
 
-    return images
+    return images, frame_metadata
 
 
-def list_legacy_frame_keys(input_dir, ndisplay_config_path):
+def list_legacy_frame_keys(input_dir, ndisplay_config_path, input_naming_template=None):
     """Sorted frame keys for UI auto-fill (full validation via find_images)."""
+    inp = (input_naming_template or "").strip() or DEFAULT_LEGACY_INPUT
     viewports, window = read_ndisplay_config(ndisplay_config_path)
     viewports["window"] = window
-    images = find_images(input_dir, viewports)
+    images, _meta = find_images(input_dir, viewports, inp)
     return sorted(images.keys(), key=_frame_sort_key)
 
 
@@ -223,6 +238,8 @@ def composite_images(
     input_dir,
     viewports,
     images,
+    frame_metadata,
+    output_template,
     output_dir=None,
     update_progressbar=None,
     start_time=None,
@@ -252,6 +269,8 @@ def composite_images(
             output_dir,
             viewports,
             images,
+            frame_metadata,
+            output_template,
             frames_to_process,
             total,
             update_progressbar,
@@ -291,9 +310,16 @@ def composite_images(
                     )
                     for viewport_name, file_path in sorted(image_files.items())
                 ]
+                md = frame_metadata[frame_number]
+                rf = dict(md["meta"])
+                rf["ext"] = md["ext"].lstrip(".").lower()
+                if rf["ext"] == "jpg":
+                    rf["ext"] = "jpeg"
+                rel = render_output_relative(output_template, rf)
+                out_path = os.path.join(output_dir, rel)
+                _legacy_makedirs_for(out_path)
                 payload = {
-                    "output_dir": output_dir,
-                    "frame_number": frame_number,
+                    "out_path": out_path,
                     "window_wh": (ww, wh),
                     "items": items,
                 }
@@ -334,6 +360,8 @@ def _composite_images_sequential(
     output_dir,
     viewports,
     images,
+    frame_metadata,
+    output_template,
     frames_to_process,
     total,
     update_progressbar,
@@ -361,8 +389,6 @@ def _composite_images_sequential(
 
             ww, wh = viewports["window"]["w"], viewports["window"]["h"]
             canvas = np.zeros((wh, ww, 3), dtype=np.uint8)
-            level_sequence_name = None
-            output_ext = None
             restart_frame = False
 
             for viewport_name, file_path in sorted(image_files.items()):
@@ -381,17 +407,6 @@ def _composite_images_sequential(
 
                 x = viewports[viewport_name]["region"]["x"]
                 y = viewports[viewport_name]["region"]["y"]
-
-                if level_sequence_name is None:
-                    file_name = os.path.basename(file_path)
-                    name_without_ext, ext = os.path.splitext(file_name)
-                    level_sequence_name, _vp = _legacy_level_and_viewport_from_stem(name_without_ext)
-                    if level_sequence_name is None:
-                        raise ImageSetError(
-                            f"Cannot parse level sequence / viewport from filename '{file_name}'."
-                        )
-                    output_ext = ext.lower()
-
                 _paste_rgb_into_canvas(canvas, arr, x, y)
 
             if cancel_event is not None and cancel_event.is_set():
@@ -404,10 +419,14 @@ def _composite_images_sequential(
             if cancel_event is not None and cancel_event.is_set():
                 break
 
-            if not output_ext:
-                output_ext = ".jpeg"
-
-            image_path = os.path.join(output_dir, f"{level_sequence_name}.{frame_number}{output_ext}")
+            md = frame_metadata[frame_number]
+            rf = dict(md["meta"])
+            rf["ext"] = md["ext"].lstrip(".").lower()
+            if rf["ext"] == "jpg":
+                rf["ext"] = "jpeg"
+            rel = render_output_relative(output_template, rf)
+            image_path = os.path.join(output_dir, rel)
+            _legacy_makedirs_for(image_path)
             save_rgb_u8_jpeg(image_path, canvas, PIL_DEFAULT_JPEG_QUALITY)
 
             if update_progressbar:
@@ -427,10 +446,19 @@ def main(
     frame_start=None,
     frame_end=None,
     max_workers=None,
+    input_naming_template=None,
+    output_naming_template=None,
 ):
+    inp = (input_naming_template or "").strip() or DEFAULT_LEGACY_INPUT
+    out_tmpl = (output_naming_template or "").strip() or DEFAULT_LEGACY_OUTPUT
+    validate_input_template(inp)
+    validate_output_template(
+        out_tmpl, inp, merger="legacy", stereo_mode_separate_eyes=False
+    )
+
     viewports, window = read_ndisplay_config(ndisplay_config_path)
     viewports["window"] = window
-    images = find_images(input_dir, viewports)
+    images, frame_metadata = find_images(input_dir, viewports, inp)
     ordered = sorted(images.keys(), key=_frame_sort_key)
     if frame_start is not None and frame_end is not None:
         frames_to_process = filter_legacy_frames_in_range(ordered, frame_start, frame_end)
@@ -440,6 +468,8 @@ def main(
         input_dir,
         viewports,
         images,
+        frame_metadata,
+        out_tmpl,
         output_dir,
         update_progressbar,
         start_time,
