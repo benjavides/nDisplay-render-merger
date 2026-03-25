@@ -6,55 +6,67 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 import numpy as np
+from PIL import Image
 
 from errors import ConfigError, ImageSetError
 from filename_template import (
     DEFAULT_LEGACY_INPUT,
     DEFAULT_LEGACY_OUTPUT,
     dotted_ext_from_capture,
+    frame_number_from_job_key,
+    input_template_uses_render_pass,
+    job_key_sort_key,
+    job_status_label,
+    make_job_key_from_fields,
     parse_basename_with_template,
     precheck_input_file_ext,
     render_output_relative,
     validate_input_template,
     validate_output_template,
 )
-from jpeg_utils import PIL_DEFAULT_JPEG_QUALITY, load_rgb_u8, save_rgb_u8_jpeg
+from jpeg_utils import (
+    PIL_DEFAULT_JPEG_QUALITY,
+    load_rgba_u8,
+    save_pil_rgba_image,
+)
 
 
 def _default_max_workers():
     return min(16, max(1, os.cpu_count() or 4))
 
 
-def _paste_rgb_into_canvas(canvas, arr, x, y):
-    """Paste viewport RGB into canvas; clips like PIL Image.paste(im, (x, y))."""
-    ch, cw = canvas.shape[0], canvas.shape[1]
-    vh, vw = arr.shape[0], arr.shape[1]
+def _paste_tile_rgba(canvas: Image.Image, tile_arr: np.ndarray, x: int, y: int) -> None:
+    """Paste viewport RGBA onto canvas at (x,y) using alpha; clip to canvas like legacy paste."""
+    th, tw = tile_arr.shape[0], tile_arr.shape[1]
+    cw, ch = canvas.size
     x1 = max(0, x)
     y1 = max(0, y)
-    x2 = min(cw, x + vw)
-    y2 = min(ch, y + vh)
+    x2 = min(cw, x + tw)
+    y2 = min(ch, y + th)
     if x1 >= x2 or y1 >= y2:
         return
     sx1 = x1 - x
     sy1 = y1 - y
-    canvas[y1:y2, x1:x2] = arr[sy1 : sy1 + (y2 - y1), sx1 : sx1 + (x2 - x1)]
+    sub = np.ascontiguousarray(tile_arr[sy1 : sy1 + (y2 - y1), sx1 : sx1 + (x2 - x1)])
+    tile_im = Image.fromarray(sub, mode="RGBA")
+    canvas.paste(tile_im, (x1, y1), tile_im)
 
 
 def _legacy_merge_one_frame(payload):
     """Process-pool worker: merge one frame (same algorithm as sequential path)."""
-    w, h = payload["window_wh"]
+    ww, wh = payload["window_wh"]
     items = payload["items"]
     image_path = payload["out_path"]
 
-    canvas = np.zeros((h, w, 3), dtype=np.uint8)
+    canvas = Image.new("RGBA", (ww, wh), (0, 0, 0, 0))
     for file_path, x, y in items:
         try:
-            arr = load_rgb_u8(file_path)
+            arr = load_rgba_u8(file_path)
         except Exception as exc:
             raise ImageSetError(f"Failed to open image '{file_path}': {exc}") from exc
-        _paste_rgb_into_canvas(canvas, arr, x, y)
+        _paste_tile_rgba(canvas, arr, x, y)
 
-    save_rgb_u8_jpeg(image_path, canvas, PIL_DEFAULT_JPEG_QUALITY)
+    save_pil_rgba_image(image_path, canvas, PIL_DEFAULT_JPEG_QUALITY)
 
 
 def read_ndisplay_config(file_path):
@@ -99,23 +111,29 @@ def read_ndisplay_config(file_path):
     return viewports, window
 
 
-def _frame_sort_key(frame):
-    return int(frame) if str(frame).isdigit() else frame
-
-
 def _legacy_makedirs_for(path):
     d = os.path.dirname(path)
     if d:
         os.makedirs(d, exist_ok=True)
 
 
-def find_images(input_dir, viewports, input_template):
+def find_images(
+    input_dir,
+    viewports,
+    input_template,
+    *,
+    require_complete_viewport_sets=True,
+):
     """
     Parse each file with input_template. Returns (images, frame_metadata).
-    images[frame_number][camera_name] = path
-    frame_metadata[frame_number] = {"meta": dict, "ext": ".png"|".jpeg"}
+    images[job_key][camera_name] = path — job_key is frame_number str, or (render_pass, frame_number).
+    frame_metadata[job_key] = {"meta": dict, "ext": ".png"|".jpeg"}
+
+    When require_complete_viewport_sets is False, skips per-job viewport completeness (for UI discovery
+    of render passes while renders are still incomplete). Empty directory / no matches still errors.
     """
     validate_input_template(input_template)
+    use_rp = input_template_uses_render_pass(input_template)
     images = {}
     frame_metadata = {}
     supported_formats = (".jpeg", ".jpg", ".png")
@@ -139,6 +157,9 @@ def find_images(input_dir, viewports, input_template):
             continue
         if cam not in expected_viewports:
             continue
+        job_key = make_job_key_from_fields(fields, use_rp)
+        if job_key is None:
+            continue
         try:
             dotted = dotted_ext_from_capture(ext_cap)
         except ImageSetError:
@@ -146,21 +167,31 @@ def find_images(input_dir, viewports, input_template):
         meta = {k: v for k, v in fields.items() if k not in ("camera_name", "ext")}
         path = os.path.join(input_dir, file_name)
 
-        if fn not in images:
-            images[fn] = {}
-            frame_metadata[fn] = {"meta": meta, "ext": dotted}
+        if job_key not in images:
+            images[job_key] = {}
+            frame_metadata[job_key] = {"meta": meta, "ext": dotted}
         else:
-            md = frame_metadata[fn]
+            md = frame_metadata[job_key]
             if md["meta"] != meta or md["ext"] != dotted:
+                ctx = (
+                    f"Frame {fn} (render pass {job_key[0]})"
+                    if isinstance(job_key, tuple)
+                    else f"Frame {fn}"
+                )
                 raise ImageSetError(
-                    f"Frame {fn}: inconsistent naming metadata or extension between viewport files "
+                    f"{ctx}: inconsistent naming metadata or extension between viewport files "
                     f"(e.g. '{file_name}' vs another image for the same frame)."
                 )
-        if cam in images[fn]:
-            raise ImageSetError(
-                f"Duplicate file for frame {fn}, viewport {cam}: '{file_name}'."
+        if cam in images[job_key]:
+            ctx = (
+                f"frame {fn}, render pass {job_key[0]}"
+                if isinstance(job_key, tuple)
+                else f"frame {fn}"
             )
-        images[fn][cam] = path
+            raise ImageSetError(
+                f"Duplicate file for {ctx}, viewport {cam}: '{file_name}'."
+            )
+        images[job_key][cam] = path
 
     if not images:
         raise ImageSetError(
@@ -168,30 +199,64 @@ def find_images(input_dir, viewports, input_template):
             "Check the input naming template and file names."
         )
 
-    for frame_number, image_files in images.items():
-        present = set(image_files.keys())
-        missing = sorted(set(expected_viewports) - present)
-        if missing:
-            raise ImageSetError(
-                "Missing viewports for some frames. "
-                f"Frame {frame_number} is missing: {', '.join(missing)}. "
-                f"Expected viewports: {', '.join(expected_viewports)}."
-            )
+    if require_complete_viewport_sets:
+        for job_key, image_files in images.items():
+            present = set(image_files.keys())
+            missing = sorted(set(expected_viewports) - present)
+            if missing:
+                fn = frame_number_from_job_key(job_key)
+                if isinstance(job_key, tuple):
+                    rp = job_key[0]
+                    raise ImageSetError(
+                        f"Frame {fn} (render pass {rp}) is missing viewports: {', '.join(missing)}. "
+                        f"Expected viewports: {', '.join(expected_viewports)}."
+                    )
+                raise ImageSetError(
+                    "Missing viewports for some frames. "
+                    f"Frame {fn} is missing: {', '.join(missing)}. "
+                    f"Expected viewports: {', '.join(expected_viewports)}."
+                )
 
     return images, frame_metadata
 
 
 def list_legacy_frame_keys(input_dir, ndisplay_config_path, input_naming_template=None):
-    """Sorted frame keys for UI auto-fill (full validation via find_images)."""
+    """Sorted job keys for UI (full validation via find_images)."""
     inp = (input_naming_template or "").strip() or DEFAULT_LEGACY_INPUT
     viewports, window = read_ndisplay_config(ndisplay_config_path)
     viewports["window"] = window
     images, _meta = find_images(input_dir, viewports, inp)
-    return sorted(images.keys(), key=_frame_sort_key)
+    return sorted(images.keys(), key=job_key_sort_key)
+
+
+def legacy_numeric_frame_span_strings(ordered_job_keys):
+    """Min/max frame numbers as strings for UI/CLI when job keys may include render_pass."""
+    nums = [
+        int(frame_number_from_job_key(k))
+        for k in ordered_job_keys
+        if str(frame_number_from_job_key(k)).isdigit()
+    ]
+    if not nums:
+        raise ImageSetError("No numeric frame numbers found in the image set.")
+    return str(min(nums)), str(max(nums))
+
+
+def list_legacy_render_passes(input_dir, ndisplay_config_path, input_naming_template=None):
+    """Distinct render_pass values from the current scan; empty if template has no {render_pass}."""
+    inp = (input_naming_template or "").strip() or DEFAULT_LEGACY_INPUT
+    if not input_template_uses_render_pass(inp):
+        return []
+    viewports, window = read_ndisplay_config(ndisplay_config_path)
+    viewports["window"] = window
+    images, _meta = find_images(
+        input_dir, viewports, inp, require_complete_viewport_sets=False
+    )
+    passes = sorted({k[0] for k in images if isinstance(k, tuple)})
+    return passes
 
 
 def filter_legacy_frames_in_range(ordered_keys, frame_start, frame_end):
-    """Inclusive numeric range on frame keys; ordered_keys must be pre-sorted."""
+    """Inclusive numeric range on frame_number part of each job key; ordered_keys may be JobKey."""
     start_s = str(frame_start).strip()
     end_s = str(frame_end).strip()
     if not start_s or not end_s:
@@ -203,14 +268,19 @@ def filter_legacy_frames_in_range(ordered_keys, frame_start, frame_end):
         raise ImageSetError("Start and end frame must be integers.") from exc
     if start_i > end_i:
         raise ImageSetError(f"Start frame ({start_i}) must be <= end frame ({end_i}).")
-    non_digit = [f for f in ordered_keys if not str(f).isdigit()]
+    frame_parts = [frame_number_from_job_key(k) for k in ordered_keys]
+    non_digit = [f for f in frame_parts if not str(f).isdigit()]
     if non_digit:
         raise ImageSetError(
             "Frame range export requires numeric frame numbers only; "
             f"non-numeric frames present: {', '.join(map(str, non_digit[:5]))}"
             + (" …" if len(non_digit) > 5 else "")
         )
-    filtered = [f for f in ordered_keys if start_i <= int(f) <= end_i]
+    filtered = [
+        k
+        for k in ordered_keys
+        if start_i <= int(frame_number_from_job_key(k)) <= end_i
+    ]
     if not filtered:
         raise ImageSetError(
             f"No frames fall in range {start_i}–{end_i} (inclusive) for the current image set."
@@ -255,7 +325,7 @@ def composite_images(
     os.makedirs(output_dir, exist_ok=True)
 
     if frames_to_process is None:
-        frames_to_process = sorted(images.keys(), key=_frame_sort_key)
+        frames_to_process = sorted(images.keys(), key=job_key_sort_key)
 
     total = len(frames_to_process)
     if total == 0:
@@ -299,9 +369,9 @@ def composite_images(
                     next_i = total
                     break
 
-                idx, frame_number = indices_frames[next_i]
+                idx, job_key = indices_frames[next_i]
                 next_i += 1
-                image_files = images[frame_number]
+                image_files = images[job_key]
                 items = [
                     (
                         file_path,
@@ -310,7 +380,7 @@ def composite_images(
                     )
                     for viewport_name, file_path in sorted(image_files.items())
                 ]
-                md = frame_metadata[frame_number]
+                md = frame_metadata[job_key]
                 rf = dict(md["meta"])
                 rf["ext"] = md["ext"].lstrip(".").lower()
                 if rf["ext"] == "jpg":
@@ -324,20 +394,20 @@ def composite_images(
                     "items": items,
                 }
                 fut = executor.submit(_legacy_merge_one_frame, payload)
-                in_flight[fut] = (idx, frame_number)
+                in_flight[fut] = (idx, job_key)
 
             if cancel_event is not None and cancel_event.is_set():
                 if in_flight:
                     wait(in_flight.keys())
                     for fut in list(in_flight.keys()):
-                        idx, frame_number = in_flight.pop(fut)
+                        idx, job_key = in_flight.pop(fut)
                         try:
                             fut.result()
                         except Exception:
                             pass
                         done_count += 1
                         if on_frame_status is not None:
-                            on_frame_status(str(frame_number), idx + 1, total)
+                            on_frame_status(job_status_label(job_key), idx + 1, total)
                         if update_progressbar is not None:
                             update_progressbar(done_count, total, start_time)
                 break
@@ -347,11 +417,11 @@ def composite_images(
 
             done, _ = wait(in_flight.keys(), return_when=FIRST_COMPLETED)
             for fut in done:
-                idx, frame_number = in_flight.pop(fut)
+                idx, job_key = in_flight.pop(fut)
                 fut.result()
                 done_count += 1
                 if on_frame_status is not None:
-                    on_frame_status(str(frame_number), idx + 1, total)
+                    on_frame_status(job_status_label(job_key), idx + 1, total)
                 if update_progressbar is not None:
                     update_progressbar(done_count, total, start_time)
 
@@ -370,14 +440,14 @@ def _composite_images_sequential(
     pause_event,
     on_frame_status,
 ):
-    for idx, frame_number in enumerate(frames_to_process):
+    for idx, job_key in enumerate(frames_to_process):
         if cancel_event is not None and cancel_event.is_set():
             break
 
         if on_frame_status is not None:
-            on_frame_status(str(frame_number), idx + 1, total)
+            on_frame_status(job_status_label(job_key), idx + 1, total)
 
-        image_files = images[frame_number]
+        image_files = images[job_key]
 
         while True:
             if cancel_event is not None and cancel_event.is_set():
@@ -388,7 +458,7 @@ def _composite_images_sequential(
                 break
 
             ww, wh = viewports["window"]["w"], viewports["window"]["h"]
-            canvas = np.zeros((wh, ww, 3), dtype=np.uint8)
+            canvas = Image.new("RGBA", (ww, wh), (0, 0, 0, 0))
             restart_frame = False
 
             for viewport_name, file_path in sorted(image_files.items()):
@@ -401,13 +471,13 @@ def _composite_images_sequential(
                     restart_frame = True
                     break
                 try:
-                    arr = load_rgb_u8(file_path)
+                    arr = load_rgba_u8(file_path)
                 except Exception as exc:
                     raise ImageSetError(f"Failed to open image '{file_path}': {exc}") from exc
 
                 x = viewports[viewport_name]["region"]["x"]
                 y = viewports[viewport_name]["region"]["y"]
-                _paste_rgb_into_canvas(canvas, arr, x, y)
+                _paste_tile_rgba(canvas, arr, x, y)
 
             if cancel_event is not None and cancel_event.is_set():
                 break
@@ -419,7 +489,7 @@ def _composite_images_sequential(
             if cancel_event is not None and cancel_event.is_set():
                 break
 
-            md = frame_metadata[frame_number]
+            md = frame_metadata[job_key]
             rf = dict(md["meta"])
             rf["ext"] = md["ext"].lstrip(".").lower()
             if rf["ext"] == "jpg":
@@ -427,7 +497,7 @@ def _composite_images_sequential(
             rel = render_output_relative(output_template, rf)
             image_path = os.path.join(output_dir, rel)
             _legacy_makedirs_for(image_path)
-            save_rgb_u8_jpeg(image_path, canvas, PIL_DEFAULT_JPEG_QUALITY)
+            save_pil_rgba_image(image_path, canvas, PIL_DEFAULT_JPEG_QUALITY)
 
             if update_progressbar:
                 update_progressbar(idx + 1, total, start_time)
@@ -448,22 +518,46 @@ def main(
     max_workers=None,
     input_naming_template=None,
     output_naming_template=None,
+    render_passes_to_process=None,
 ):
     inp = (input_naming_template or "").strip() or DEFAULT_LEGACY_INPUT
     out_tmpl = (output_naming_template or "").strip() or DEFAULT_LEGACY_OUTPUT
     validate_input_template(inp)
-    validate_output_template(
-        out_tmpl, inp, merger="legacy", stereo_mode_separate_eyes=False
-    )
+    use_rp = input_template_uses_render_pass(inp)
 
     viewports, window = read_ndisplay_config(ndisplay_config_path)
     viewports["window"] = window
     images, frame_metadata = find_images(input_dir, viewports, inp)
-    ordered = sorted(images.keys(), key=_frame_sort_key)
+    ordered = sorted(images.keys(), key=job_key_sort_key)
     if frame_start is not None and frame_end is not None:
         frames_to_process = filter_legacy_frames_in_range(ordered, frame_start, frame_end)
     else:
         frames_to_process = ordered
+    if render_passes_to_process is not None and use_rp:
+        allow = frozenset(render_passes_to_process)
+        frames_to_process = [
+            k for k in frames_to_process if isinstance(k, tuple) and k[0] in allow
+        ]
+        if not frames_to_process:
+            raise ImageSetError(
+                "No jobs to process: no frames match the selected render pass(es) and frame range."
+            )
+
+    require_rp_in_output = False
+    if use_rp:
+        if render_passes_to_process is not None:
+            require_rp_in_output = len(render_passes_to_process) > 1
+        else:
+            passes_in_batch = {k[0] for k in frames_to_process if isinstance(k, tuple)}
+            require_rp_in_output = len(passes_in_batch) > 1
+
+    validate_output_template(
+        out_tmpl,
+        inp,
+        merger="legacy",
+        stereo_mode_separate_eyes=False,
+        require_render_pass_in_output=require_rp_in_output,
+    )
     composite_images(
         input_dir,
         viewports,
@@ -541,11 +635,12 @@ if __name__ == "__main__":
             )
         else:
             ordered = list_legacy_frame_keys(args.input_dir, args.ndisplay_config_path)
+            fs, fe = legacy_numeric_frame_span_strings(ordered)
             main(
                 args.input_dir,
                 args.ndisplay_config_path,
-                frame_start=str(ordered[0]),
-                frame_end=str(ordered[-1]),
+                frame_start=fs,
+                frame_end=fe,
                 **kw,
             )
     except ConfigError as exc:

@@ -3,7 +3,10 @@ Movie Render Queue–style filename templates: {sequence_name}.{camera_name}.{fr
 """
 import os
 import re
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
+
+# Job key: bare frame_number, or (render_pass, frame_number) when input uses {render_pass}
+JobKey = Union[str, Tuple[str, str]]
 
 from errors import ImageSetError
 
@@ -102,6 +105,56 @@ def _normalize_ext_token(raw: str) -> str:
     return f".{s}"
 
 
+def input_template_uses_render_pass(template: str) -> bool:
+    return "render_pass" in frozenset(placeholders_in_template(template))
+
+
+def make_job_key_from_fields(fields: Dict[str, str], use_render_pass: bool) -> Optional[JobKey]:
+    """
+    Build dict key for one merge job. If use_render_pass, requires non-empty render_pass capture.
+    Returns None if render_pass is required but missing/blank (caller should skip file).
+    """
+    fn = fields.get("frame_number")
+    if fn is None:
+        return None
+    if not use_render_pass:
+        return fn
+    rp = (fields.get("render_pass") or "").strip()
+    if not rp:
+        return None
+    return (rp, fn)
+
+
+def job_key_sort_key(key: JobKey):
+    """Sort key comparable across JobKey variants (tuple vs plain frame id)."""
+    if isinstance(key, tuple):
+        rp, fn = key
+        fn_part = int(fn) if str(fn).isdigit() else fn
+        return (rp, fn_part)
+    fn = key
+    fn_part = int(fn) if str(fn).isdigit() else fn
+    return ("", fn_part)
+
+
+def frame_number_from_job_key(key: JobKey) -> str:
+    if isinstance(key, tuple):
+        return key[1]
+    return key
+
+
+def render_pass_from_job_key(key: JobKey) -> Optional[str]:
+    if isinstance(key, tuple):
+        return key[0]
+    return None
+
+
+def job_status_label(key: JobKey) -> str:
+    if isinstance(key, tuple):
+        rp, fn = key
+        return f"{rp}/{fn}"
+    return str(key)
+
+
 def placeholders_in_template(template: str) -> Tuple[str, ...]:
     """Order-preserving unique canonical placeholder names."""
     seen = []
@@ -183,6 +236,7 @@ def validate_output_template(
     *,
     merger: str,
     stereo_mode_separate_eyes: bool,
+    require_render_pass_in_output: bool = True,
 ) -> None:
     compile_filename_pattern(output_template)
     out_ph = frozenset(placeholders_in_template(output_template))
@@ -211,6 +265,16 @@ def validate_output_template(
         raise ImageSetError(
             "Output naming template must include {frame_number} and {ext}. "
             f"Missing: {', '.join('{' + x + '}' for x in sorted(miss))}."
+        )
+
+    if (
+        require_render_pass_in_output
+        and "render_pass" in in_ph
+        and "render_pass" not in out_ph
+    ):
+        raise ImageSetError(
+            "Input template includes {render_pass} and multiple render passes are being processed; "
+            "the output template must include {render_pass} so outputs do not collide."
         )
 
     extra = out_ph - in_ph

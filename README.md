@@ -3,7 +3,7 @@
 **nDisplay Merger** helps you composite images rendered with nDisplay using Unreal Engine’s Movie Render Queue (UE 5.1+). The desktop app (`ui.py` / `nDisplayMerger.exe`) has **two tabs**:
 
 1. **Config Merger** — stitches nDisplay viewports into one image per frame using your `.ndisplay` **Output Mapping** (original workflow).
-2. **Stereo VR Merger** — takes **left eye** and **right eye** cubemap renders (six square face images per eye per frame), runs them through **[py360convert](https://github.com/sunset1995/py360convert)** (cube map → equirectangular). Choose **output mode**: **Equirectangular stereo (over/under)** for one stacked JPEG per frame, or **Equirectangular mono** for separate equirectangular JPEGs per eye under `left_eye/` and `right_eye/`.
+2. **Stereo VR Merger** — takes **left eye** and **right eye** cubemap renders (six square face images per eye per frame), runs them through **[py360convert](https://github.com/sunset1995/py360convert)** (cube map → equirectangular). **PNG inputs carry alpha through to PNG output** (each color/alpha channel is resampled like RGB). Choose **output mode**: **Equirectangular stereo (over/under)** for one stacked image per frame, or **Equirectangular mono** for separate equirectangular files per eye under `left_eye/` and `right_eye/`.
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/benjavides)
 
@@ -19,6 +19,8 @@ and produces **one merged image per frame**, laid out exactly as defined in the 
 
 **Input** and **output naming** use Movie Render Queue–style templates with `{placeholders}` (type `{` in the UI for a keyword list). The input template must include `{camera_name}`, `{frame_number}`, and `{ext}` (`.jpeg`, `.jpg`, or `.png` only; **EXR is not supported**). Defaults: input `{sequence_name}.{camera_name}.{frame_number}.{ext}`, output `{sequence_name}.{frame_number}.{ext}`. Every output placeholder must appear in the input template; merged output uses the same image format as the inputs (PNG or JPEG).
 
+If **`{render_pass}`** is in the **input** template, jobs are keyed by **(render pass, frame)** so passes are never mixed in one composite. **`{render_pass}` is required in the output template when more than one pass is processed** (e.g. several checkboxes selected in the GUI, or more than one distinct pass in the batch when using the CLI without a pass filter); with **only one pass** selected or present, you may omit `{render_pass}` from the output path. The GUI shows a **Render passes** section (all passes checked by default); unchecked passes are skipped. Validation errors for missing viewports include the render pass and frame. In `settings.json`, **input/output naming strings are written when you click Run** (not when closing the app); **render-pass checkbox choices** are saved on close and again when a run starts.
+
 ![nDisplay Merger output mapping](./assets/image-20230415000442107.png)
 
 ### Stereo VR Merger (cubemap → equirectangular)
@@ -28,7 +30,7 @@ Use this when you have **two folders** of cubemap face renders:
 - **Left eye directory** — for each frame, six images whose viewport names include the face tokens **FRONT**, **BACK**, **LEFT**, **RIGHT**, **UP**, **DOWN** (matched as separate words; case-insensitive).
 - **Right eye directory** — the **same frame numbers** and the same face layout as the left folder.
 
-Use **Input naming** / **Output naming** with `{camera_name}`, `{frame_number}`, `{ext}`, and other MRQ tokens as needed. The `{camera_name}` segment must encode the cubemap face (FRONT, BACK, LEFT, RIGHT, UP, DOWN as separate tokens). Default input matches Config Merger: `{sequence_name}.{camera_name}.{frame_number}.{ext}`.
+Use **Input naming** / **Output naming** with `{camera_name}`, `{frame_number}`, `{ext}`, and other MRQ tokens as needed. The `{camera_name}` segment must encode the cubemap face (FRONT, BACK, LEFT, RIGHT, UP, DOWN as separate tokens). Default input matches Config Merger: `{sequence_name}.{camera_name}.{frame_number}.{ext}`. With **`{render_pass}`** in the input template, stereo processing groups by pass and frame; **`{render_pass}` in the output template is required only when multiple passes are processed** (same rule as Config Merger). The GUI **Render passes** checkboxes control which passes run (same persistence rules as Config Merger).
 
 **Output modes** (GUI **Output mode** dropdown, or `output_mode` when calling `stereo_merger.main` in Python):
 

@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import threading
 import time
 import tkinter as tk
@@ -18,15 +19,23 @@ from filename_template import (
     INPUT_KEYWORDS_STEREO,
     OUTPUT_KEYWORDS_LEGACY,
     OUTPUT_KEYWORDS_STEREO_SEPARATE,
+    input_template_uses_render_pass,
 )
 from naming_ui import NamingSchemeEntry
-from nDisplayMerger import list_legacy_frame_keys, main as run_legacy_merger
+from nDisplayMerger import (
+    legacy_numeric_frame_span_strings,
+    list_legacy_frame_keys,
+    list_legacy_render_passes,
+    main as run_legacy_merger,
+)
 from stereo_merger import (
     StereoOutputMode,
     coerce_stereo_output_mode,
     list_paired_stereo_frames,
+    list_stereo_render_passes,
     main as run_stereo_merger,
     resolve_stereo_output_dir,
+    stereo_numeric_frame_span_strings,
 )
 
 _STEREO_MODE_LABEL_TO_VALUE = {
@@ -35,40 +44,47 @@ _STEREO_MODE_LABEL_TO_VALUE = {
 }
 _STEREO_MODE_VALUE_TO_LABEL = {v: k for k, v in _STEREO_MODE_LABEL_TO_VALUE.items()}
 
-SETTINGS_PATH = os.path.join(os.getcwd(), "settings.json")
+_SETTINGS_BASE = (
+    os.path.dirname(os.path.abspath(sys.executable))
+    if getattr(sys, "frozen", False)
+    else os.path.dirname(os.path.abspath(__file__))
+)
+SETTINGS_PATH = os.path.join(_SETTINGS_BASE, "settings.json")
+_APP_ICON_PATH = os.path.join(_SETTINGS_BASE, "assets", "app.ico")
 _RANGE_REFRESH_MS = 400
+
+
+def _apply_window_icon(root: tk.Tk) -> None:
+    """Title-bar icon: dev uses assets/app.ico; frozen app uses icon embedded in the .exe (PyInstaller --icon)."""
+    try:
+        if getattr(sys, "frozen", False):
+            # onefile exe has no loose assets/ folder next to the binary unless added with --add-data
+            root.iconbitmap(default=os.path.abspath(sys.executable))
+        elif os.path.isfile(_APP_ICON_PATH):
+            root.iconbitmap(_APP_ICON_PATH)
+    except tk.TclError:
+        pass
 _MAX_UI_WORKERS = 32
 
 HELP_LEGACY = (
-    "Standard Config Merger composites nDisplay viewports onto a canvas using the Output Mapping "
-    "from your .ndisplay config.\n\n"
-    "Input naming (Movie Render Queue style): set **Input naming** with placeholders in curly braces. "
-    "Type `{` to open a keyword list (filter by typing after the brace). The input template must include "
-    "`{camera_name}`, `{frame_number}`, and `{ext}` (.jpeg / .jpg / .png only; EXR is not supported). "
-    "Default input: `{sequence_name}.{camera_name}.{frame_number}.{ext}`.\n\n"
-    "**Output naming** must also include `{frame_number}` and `{ext}`; every placeholder there must appear "
-    "in the input template so values exist. Default output: `{sequence_name}.{frame_number}.{ext}`. "
-    "Output format follows the input extension (PNG or JPEG).\n\n"
-    "Pause may occur while a frame is being built; when you resume, that frame is processed again. "
-    "Start/End frame update when paths and templates are valid. Workers sets parallel frame jobs. "
-    "CLI: `nDisplayMerger.py` with `--jobs N` (use 1 for sequential)."
+    "Stitches your rendered viewport images into one picture per frame, using the layout from the "
+    "nDisplay config you choose.\n\n"
+    "Only PNG and JPEG inputs are supported.\n\n"
+    "Every placeholder used in output naming must also appear in input naming (so the app knows how "
+    "to read each part of the filenames).\n\n"
+    "If you use render passes: when more than one pass is exported, include {render_pass} in the "
+    "output template as well, or files from different passes would overwrite each other.\n\n"
 )
 
 HELP_STEREO = (
-    "Stereo VR Merger converts 6 cubemap faces per eye to equirectangular (py360convert), then exports "
-    "over/under stereo or separate monoscopic files per eye.\n\n"
-    "Input naming: same MRQ-style `{placeholder}` pattern as Config Merger. Required: `{camera_name}`, "
-    "`{frame_number}`, `{ext}` (jpeg/jpg/png only; EXR unsupported). The `{camera_name}` segment must "
-    "contain exactly one cubemap face token as a separate word: BACK, LEFT, FRONT, RIGHT, UP, DOWN "
-    "(case-insensitive). Default input: `{sequence_name}.{camera_name}.{frame_number}.{ext}`.\n\n"
-    "Output naming: must include `{frame_number}` and `{ext}`; placeholders must appear in the input "
-    "template except `{eye}` (mono mode only). **Over/under** — do not use `{eye}`; default "
-    "`{sequence_name}.StereoEquirect.{frame_number}.{ext}`. **Equirectangular mono** — `{eye}` is "
-    "required; default `{eye}/{sequence_name}.Equirect.{frame_number}.{ext}` (`{eye}` → left_eye or "
-    "right_eye). Output extension matches inputs (PNG or JPEG).\n\n"
-    "Both eyes must share the same frame keys and the same non-camera metadata per frame. "
-    "Workers: use a low count (1–2) for large cubemap faces to limit RAM. No separate stereo CLI; "
-    "use this tab or `stereo_merger.main(...)` from Python."
+    "Turns cubemap face renders (six directions per eye) into a 360° equirectangular image. "
+    "You can save a single over/under stereo file or separate files per eye, depending on output mode.\n\n"
+    "Only PNG and JPEG inputs are supported.\n\n"
+    "In each filename, the camera name part must include exactly one face word on its own: "
+    "BACK, LEFT, FRONT, RIGHT, UP, or DOWN (any case).\n\n"
+    "In Equirectangular mono mode, output naming must include {eye} so left and right files do not collide.\n\n"
+    "If you use render passes and export more than one pass, add {render_pass} to output naming too.\n\n"
+    "Large cubemap images use a lot of memory; try one or two workers if the app struggles."
 )
 
 
@@ -101,6 +117,13 @@ def save_settings(values):
             json.dump(values, f, indent=2)
     except OSError:
         pass
+
+
+def save_partial_settings(updates):
+    """Merge updates into existing settings file."""
+    cur = load_settings()
+    cur.update(updates)
+    save_settings(cur)
 
 
 def _norm_drop_path(data):
@@ -178,11 +201,16 @@ def build_ui(root):
         stereo_output_naming.set(stereo_out_ou.get())
     _prev_stereo_mode = [stereo_mode_var.get()]
 
+    legacy_rp_vars = {}
+    stereo_rp_vars = {}
+
     worker_running = [False]
 
     def persist_settings():
+        # Merge into existing JSON so naming keys saved on Run are not erased on window close.
         _persist_stereo_output_field_into_active_bucket()
-        save_settings(
+        cur = load_settings()
+        cur.update(
             {
                 "legacy_input_dir": legacy_input_dir.get(),
                 "legacy_ndisplay": legacy_ndisplay.get(),
@@ -200,13 +228,15 @@ def build_ui(root):
                 ),
                 "legacy_max_workers": legacy_max_workers.get(),
                 "stereo_max_workers": stereo_max_workers.get(),
-                "legacy_input_naming": legacy_input_naming.get(),
-                "legacy_output_naming": legacy_output_naming.get(),
-                "stereo_input_naming": stereo_input_naming.get(),
-                "stereo_output_naming_ou": stereo_out_ou.get(),
-                "stereo_output_naming_sep": stereo_out_sep.get(),
+                "legacy_render_pass_checked": {
+                    k: bool(v.get()) for k, v in legacy_rp_vars.items()
+                },
+                "stereo_render_pass_checked": {
+                    k: bool(v.get()) for k, v in stereo_rp_vars.items()
+                },
             }
         )
+        save_settings(cur)
 
     def _persist_stereo_output_field_into_active_bucket():
         if stereo_mode_var.get() == "Equirectangular mono":
@@ -335,63 +365,6 @@ def build_ui(root):
 
     stop_btn.config(command=on_stop)
 
-    # --- debounced range refresh ---
-    legacy_refresh_after = [None]
-    stereo_refresh_after = [None]
-
-    def _try_refresh_legacy_range():
-        legacy_refresh_after[0] = None
-        inp = legacy_input_dir.get().strip()
-        cfg = legacy_ndisplay.get().strip()
-        if not inp or not cfg or not os.path.isdir(inp) or not os.path.isfile(cfg):
-            return
-        try:
-            keys = list_legacy_frame_keys(inp, cfg, legacy_input_naming.get().strip() or None)
-            legacy_frame_start.set(str(keys[0]))
-            legacy_frame_end.set(str(keys[-1]))
-        except (ConfigError, ImageSetError, OSError):
-            pass
-
-    def _schedule_legacy_range_refresh(*_):
-        if legacy_refresh_after[0] is not None:
-            try:
-                root.after_cancel(legacy_refresh_after[0])
-            except tk.TclError:
-                pass
-        legacy_refresh_after[0] = root.after(_RANGE_REFRESH_MS, _try_refresh_legacy_range)
-
-    def _try_refresh_stereo_range():
-        stereo_refresh_after[0] = None
-        left_p = stereo_left_dir.get().strip()
-        right_p = stereo_right_dir.get().strip()
-        if not left_p or not right_p or not os.path.isdir(left_p) or not os.path.isdir(right_p):
-            return
-        try:
-            keys = list_paired_stereo_frames(
-                left_p,
-                right_p,
-                stereo_input_naming.get().strip() or None,
-            )
-            stereo_frame_start.set(str(keys[0]))
-            stereo_frame_end.set(str(keys[-1]))
-        except (ImageSetError, OSError):
-            pass
-
-    def _schedule_stereo_range_refresh(*_):
-        if stereo_refresh_after[0] is not None:
-            try:
-                root.after_cancel(stereo_refresh_after[0])
-            except tk.TclError:
-                pass
-        stereo_refresh_after[0] = root.after(_RANGE_REFRESH_MS, _try_refresh_stereo_range)
-
-    legacy_input_dir.trace_add("write", _schedule_legacy_range_refresh)
-    legacy_ndisplay.trace_add("write", _schedule_legacy_range_refresh)
-    legacy_input_naming.trace_add("write", _schedule_legacy_range_refresh)
-    stereo_left_dir.trace_add("write", _schedule_stereo_range_refresh)
-    stereo_right_dir.trace_add("write", _schedule_stereo_range_refresh)
-    stereo_input_naming.trace_add("write", _schedule_stereo_range_refresh)
-
     # --- Legacy tab ---
     row_pad_y = 4
     row = 0
@@ -511,6 +484,14 @@ def build_ui(root):
     tk.Entry(tab_legacy, textvariable=legacy_frame_end, width=50).grid(
         row=row, column=1, sticky="w", pady=row_pad_y
     )
+    row += 1
+
+    legacy_rp_grid_kw = dict(row=row, column=0, columnspan=3, sticky="ew", pady=row_pad_y)
+    legacy_rp_lf = ttk.LabelFrame(tab_legacy, text="Render passes")
+    legacy_rp_inner = ttk.Frame(legacy_rp_lf)
+    legacy_rp_inner.pack(fill="x", padx=4, pady=4)
+    legacy_rp_lf.grid(**legacy_rp_grid_kw)
+    legacy_rp_lf.grid_remove()
     row += 1
 
     ttk.Label(tab_legacy, text="Workers:").grid(
@@ -665,6 +646,14 @@ def build_ui(root):
     )
     row += 1
 
+    stereo_rp_grid_kw = dict(row=row, column=0, columnspan=3, sticky="ew", pady=row_pad_y)
+    stereo_rp_lf = ttk.LabelFrame(tab_stereo, text="Render passes")
+    stereo_rp_inner = ttk.Frame(stereo_rp_lf)
+    stereo_rp_inner.pack(fill="x", padx=4, pady=4)
+    stereo_rp_lf.grid(**stereo_rp_grid_kw)
+    stereo_rp_lf.grid_remove()
+    row += 1
+
     ttk.Label(tab_stereo, text="Workers:").grid(
         row=row, column=0, sticky="e", padx=(0, 8), pady=row_pad_y
     )
@@ -676,6 +665,145 @@ def build_ui(root):
         width=6,
     ).grid(row=row, column=1, sticky="w", pady=row_pad_y)
     row += 1
+
+    # --- debounced range refresh & render-pass checkboxes ---
+    legacy_refresh_after = [None]
+    stereo_refresh_after = [None]
+
+    def save_naming_and_render_passes_on_run():
+        _persist_stereo_output_field_into_active_bucket()
+        save_partial_settings(
+            {
+                "legacy_input_naming": legacy_input_naming.get(),
+                "legacy_output_naming": legacy_output_naming.get(),
+                "stereo_input_naming": stereo_input_naming.get(),
+                "stereo_output_naming_ou": stereo_out_ou.get(),
+                "stereo_output_naming_sep": stereo_out_sep.get(),
+                "legacy_render_pass_checked": {
+                    k: bool(v.get()) for k, v in legacy_rp_vars.items()
+                },
+                "stereo_render_pass_checked": {
+                    k: bool(v.get()) for k, v in stereo_rp_vars.items()
+                },
+            }
+        )
+
+    def _rebuild_legacy_render_passes():
+        prev = {k: bool(v.get()) for k, v in legacy_rp_vars.items()}
+        legacy_rp_vars.clear()
+        for w in legacy_rp_inner.winfo_children():
+            w.destroy()
+        tpl = (legacy_input_naming.get() or "").strip() or DEFAULT_LEGACY_INPUT
+        if not input_template_uses_render_pass(tpl):
+            legacy_rp_lf.grid_remove()
+            return
+        inp_d = legacy_input_dir.get().strip()
+        cfg_d = legacy_ndisplay.get().strip()
+        if not inp_d or not cfg_d or not os.path.isdir(inp_d) or not os.path.isfile(cfg_d):
+            legacy_rp_lf.grid_remove()
+            return
+        try:
+            passes = list_legacy_render_passes(inp_d, cfg_d, tpl)
+        except (ConfigError, ImageSetError, OSError):
+            legacy_rp_lf.grid_remove()
+            return
+        if not passes:
+            legacy_rp_lf.grid_remove()
+            return
+        saved = load_settings().get("legacy_render_pass_checked") or {}
+        for p in passes:
+            v = tk.BooleanVar(value=prev.get(p, saved.get(p, True)))
+            legacy_rp_vars[p] = v
+            ttk.Checkbutton(legacy_rp_inner, text=p, variable=v).pack(anchor="w")
+        legacy_rp_lf.grid(**legacy_rp_grid_kw)
+
+    def _rebuild_stereo_render_passes():
+        prev = {k: bool(v.get()) for k, v in stereo_rp_vars.items()}
+        stereo_rp_vars.clear()
+        for w in stereo_rp_inner.winfo_children():
+            w.destroy()
+        tpl = (stereo_input_naming.get() or "").strip() or DEFAULT_STEREO_INPUT
+        if not input_template_uses_render_pass(tpl):
+            stereo_rp_lf.grid_remove()
+            return
+        left_p = stereo_left_dir.get().strip()
+        right_p = stereo_right_dir.get().strip()
+        if not left_p or not right_p or not os.path.isdir(left_p) or not os.path.isdir(right_p):
+            stereo_rp_lf.grid_remove()
+            return
+        try:
+            passes = list_stereo_render_passes(left_p, right_p, tpl)
+        except (ImageSetError, OSError):
+            stereo_rp_lf.grid_remove()
+            return
+        if not passes:
+            stereo_rp_lf.grid_remove()
+            return
+        saved = load_settings().get("stereo_render_pass_checked") or {}
+        for p in passes:
+            v = tk.BooleanVar(value=prev.get(p, saved.get(p, True)))
+            stereo_rp_vars[p] = v
+            ttk.Checkbutton(stereo_rp_inner, text=p, variable=v).pack(anchor="w")
+        stereo_rp_lf.grid(**stereo_rp_grid_kw)
+
+    def _try_refresh_legacy_range():
+        legacy_refresh_after[0] = None
+        inp = legacy_input_dir.get().strip()
+        cfg = legacy_ndisplay.get().strip()
+        if not inp or not cfg or not os.path.isdir(inp) or not os.path.isfile(cfg):
+            _rebuild_legacy_render_passes()
+            return
+        try:
+            keys = list_legacy_frame_keys(inp, cfg, legacy_input_naming.get().strip() or None)
+            fs, fe = legacy_numeric_frame_span_strings(keys)
+            legacy_frame_start.set(fs)
+            legacy_frame_end.set(fe)
+        except (ConfigError, ImageSetError, OSError):
+            pass
+        _rebuild_legacy_render_passes()
+
+    def _schedule_legacy_range_refresh(*_):
+        if legacy_refresh_after[0] is not None:
+            try:
+                root.after_cancel(legacy_refresh_after[0])
+            except tk.TclError:
+                pass
+        legacy_refresh_after[0] = root.after(_RANGE_REFRESH_MS, _try_refresh_legacy_range)
+
+    def _try_refresh_stereo_range():
+        stereo_refresh_after[0] = None
+        left_p = stereo_left_dir.get().strip()
+        right_p = stereo_right_dir.get().strip()
+        if not left_p or not right_p or not os.path.isdir(left_p) or not os.path.isdir(right_p):
+            _rebuild_stereo_render_passes()
+            return
+        try:
+            keys = list_paired_stereo_frames(
+                left_p,
+                right_p,
+                stereo_input_naming.get().strip() or None,
+            )
+            fs, fe = stereo_numeric_frame_span_strings(keys)
+            stereo_frame_start.set(fs)
+            stereo_frame_end.set(fe)
+        except (ImageSetError, OSError):
+            pass
+        _rebuild_stereo_render_passes()
+
+    def _schedule_stereo_range_refresh(*_):
+        if stereo_refresh_after[0] is not None:
+            try:
+                root.after_cancel(stereo_refresh_after[0])
+            except tk.TclError:
+                pass
+        stereo_refresh_after[0] = root.after(_RANGE_REFRESH_MS, _try_refresh_stereo_range)
+
+    legacy_input_dir.trace_add("write", _schedule_legacy_range_refresh)
+    legacy_ndisplay.trace_add("write", _schedule_legacy_range_refresh)
+    legacy_input_naming.trace_add("write", _schedule_legacy_range_refresh)
+    stereo_left_dir.trace_add("write", _schedule_stereo_range_refresh)
+    stereo_right_dir.trace_add("write", _schedule_stereo_range_refresh)
+    stereo_input_naming.trace_add("write", _schedule_stereo_range_refresh)
 
     def finish_job_ui(cancelled=False):
         pause_event.clear()
@@ -690,7 +818,7 @@ def build_ui(root):
         except OSError:
             pass
 
-    def run_legacy_worker(max_workers):
+    def run_legacy_worker(max_workers, render_passes_to_process=None):
         start_time = time.time()
         cancelled = False
         err_title = err_msg = None
@@ -710,6 +838,7 @@ def build_ui(root):
                 max_workers=max_workers,
                 input_naming_template=legacy_input_naming.get().strip() or None,
                 output_naming_template=legacy_output_naming.get().strip() or None,
+                render_passes_to_process=render_passes_to_process,
             )
             cancelled = cancel_event.is_set()
             if not cancelled:
@@ -762,14 +891,29 @@ def build_ui(root):
                 f"Workers must be an integer from 1 to {_MAX_UI_WORKERS}.",
             )
             return
+        inp_tpl = (legacy_input_naming.get() or "").strip() or DEFAULT_LEGACY_INPUT
+        rp_filter = None
+        if input_template_uses_render_pass(inp_tpl):
+            rp_filter = frozenset(p for p, var in legacy_rp_vars.items() if var.get())
+            if not rp_filter:
+                messagebox.showerror(
+                    "nDisplay Merger",
+                    "Select at least one render pass, or remove {render_pass} from the input naming template.",
+                )
+                return
         persist_settings()
+        save_naming_and_render_passes_on_run()
         cancel_event.clear()
         pause_event.clear()
         reset_progress_ui()
         set_buttons_running()
-        threading.Thread(target=run_legacy_worker, args=(nw,), daemon=True).start()
+        threading.Thread(
+            target=run_legacy_worker,
+            args=(nw, rp_filter),
+            daemon=True,
+        ).start()
 
-    def run_stereo_worker(max_workers):
+    def run_stereo_worker(max_workers, render_passes_to_process=None):
         start_time = time.time()
         cancelled = False
         err_title = err_msg = None
@@ -799,6 +943,7 @@ def build_ui(root):
                 output_mode=stereo_mode,
                 input_naming_template=stereo_input_naming.get().strip() or None,
                 output_naming_template=stereo_output_naming.get().strip() or None,
+                render_passes_to_process=render_passes_to_process,
             )
             cancelled = cancel_event.is_set()
             if not cancelled:
@@ -847,12 +992,27 @@ def build_ui(root):
                 f"Workers must be an integer from 1 to {_MAX_UI_WORKERS}.",
             )
             return
+        inp_tpl = (stereo_input_naming.get() or "").strip() or DEFAULT_STEREO_INPUT
+        rp_filter = None
+        if input_template_uses_render_pass(inp_tpl):
+            rp_filter = frozenset(p for p, var in stereo_rp_vars.items() if var.get())
+            if not rp_filter:
+                messagebox.showerror(
+                    "Stereo VR Merger",
+                    "Select at least one render pass, or remove {render_pass} from the input naming template.",
+                )
+                return
         persist_settings()
+        save_naming_and_render_passes_on_run()
         cancel_event.clear()
         pause_event.clear()
         reset_progress_ui()
         set_buttons_running()
-        threading.Thread(target=run_stereo_worker, args=(nw,), daemon=True).start()
+        threading.Thread(
+            target=run_stereo_worker,
+            args=(nw, rp_filter),
+            daemon=True,
+        ).start()
 
     def on_run_pause_resume():
         if not worker_running[0]:
@@ -887,6 +1047,7 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     root = TkinterDnD.Tk()
     root.title("nDisplay Merger")
+    _apply_window_icon(root)
     root.resizable(False, False)
     build_ui(root)
     root.mainloop()
