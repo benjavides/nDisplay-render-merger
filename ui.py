@@ -84,7 +84,11 @@ HELP_STEREO = (
     "BACK, LEFT, FRONT, RIGHT, UP, or DOWN (any case).\n\n"
     "In Equirectangular mono mode, output naming must include {eye} so left and right files do not collide.\n\n"
     "If you use render passes and export more than one pass, add {render_pass} to output naming too.\n\n"
-    "Large cubemap images use a lot of memory; try one or two workers if the app struggles."
+    "Each worker converts one whole frame (both eyes) at a time, so more workers means more "
+    "frames in flight. Speed usually stops improving once workers reach about half your CPU "
+    "cores, because reading and writing the images becomes the limit.\n\n"
+    "Large cubemap images use a lot of memory: budget roughly 1 GB of RAM per worker for "
+    "2K faces, more for 4K. Lower the worker count if the app struggles."
 )
 
 

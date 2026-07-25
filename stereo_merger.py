@@ -4,10 +4,15 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from enum import Enum
 
 import numpy as np
-import py360convert
 from errors import ImageSetError
 
-from jpeg_utils import STEREO_JPEG_QUALITY, load_rgba_u8, save_u8_image
+import fast_c2e
+from jpeg_utils import (
+    STEREO_JPEG_QUALITY,
+    load_rgb_u8,
+    load_rgba_u8,
+    save_u8_image,
+)
 from filename_template import (
     DEFAULT_STEREO_INPUT,
     DEFAULT_STEREO_OUTPUT_OVER_UNDER,
@@ -259,21 +264,36 @@ def filter_stereo_frames_in_range(ordered_keys, frame_start, frame_end):
     return filtered
 
 
-def _load_face_rgba(path):
-    """H×W×4 uint8; cubemap→equirect preserves alpha (JPEG faces use opaque alpha)."""
+def _load_face_array(path):
+    """
+    H×W×3 uint8 for JPEG faces, H×W×4 for anything that can carry alpha.
+
+    JPEG has no alpha channel, so loading those faces as RGBA only meant resampling a
+    constant 255 plane and then flattening it away again at save time.
+    """
+    if os.path.splitext(path)[1].lower() in (".jpg", ".jpeg"):
+        return load_rgb_u8(path)
     return load_rgba_u8(path)
 
 
 def _cubemap_to_equirect(face_to_path):
-    """face_to_path maps FRONT..DOWN to file path. Returns H×W×4 uint8 RGBA (py360convert samples each channel)."""
+    """face_to_path maps FRONT..DOWN to file path. Returns H×W×3 (JPEG faces) or H×W×4 uint8."""
     arrays = {}
-    face_w = face_h = None
+    face_w = None
+    channels = None
     for face, key in _FACE_TO_CUBE_KEY.items():
-        arr = _load_face_rgba(face_to_path[face])
-        if arr.ndim != 3 or arr.shape[2] != 4:
+        arr = _load_face_array(face_to_path[face])
+        if arr.ndim != 3 or arr.shape[2] not in (3, 4):
             raise ImageSetError(
-                f"Expected RGBA image for face {face}: '{face_to_path[face]}' "
+                f"Expected RGB or RGBA image for face {face}: '{face_to_path[face]}' "
                 f"(got shape {arr.shape})."
+            )
+        if channels is None:
+            channels = arr.shape[2]
+        elif arr.shape[2] != channels:
+            raise ImageSetError(
+                f"Cubemap faces mix channel counts ({channels} vs {arr.shape[2]}); "
+                f"offending face {face}: '{face_to_path[face]}'."
             )
         h, w = arr.shape[0], arr.shape[1]
         if h != w:
@@ -291,10 +311,7 @@ def _cubemap_to_equirect(face_to_path):
 
     equirect_h = 2 * face_w
     equirect_w = 4 * face_w
-    out = py360convert.c2e(arrays, equirect_h, equirect_w, cube_format="dict")
-    if out.dtype != np.uint8:
-        out = np.clip(out, 0, 255).astype(np.uint8)
-    return out
+    return fast_c2e.c2e_dict(arrays, equirect_h, equirect_w)
 
 
 def _save_stereo_equirect_outputs(
@@ -326,6 +343,22 @@ def _save_stereo_equirect_outputs(
         save_u8_image(out_right_path, right_equi, STEREO_JPEG_QUALITY)
     else:
         raise ImageSetError(f"Unsupported stereo output mode: {output_mode!r}")
+
+
+def _stereo_worker_init():
+    """
+    Runs once per pool process.
+
+    OpenCV defaults to one thread per core inside remap; with N worker processes that is
+    N x cores threads fighting over the same cores, which is slower than plain serial work.
+    Each process gets one thread and parallelism comes from the pool instead.
+    """
+    try:
+        import cv2
+
+        cv2.setNumThreads(1)
+    except ImportError:
+        pass
 
 
 def _stereo_merge_one_frame(payload):
@@ -488,7 +521,9 @@ def main(
     in_flight = {}
     done_count = 0
 
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with ProcessPoolExecutor(
+        max_workers=max_workers, initializer=_stereo_worker_init
+    ) as executor:
         while next_i < total or in_flight:
             while next_i < total and len(in_flight) < max_workers:
                 if cancel_event is not None and cancel_event.is_set():
