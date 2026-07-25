@@ -324,15 +324,20 @@ def _save_stereo_equirect_outputs(
     out_right_path=None,
     frame_label=None,
 ):
-    h, w = left_equi.shape[:2]
-    if right_equi.shape[:2] != (h, w):
+    if left_equi.shape != right_equi.shape:
+        lh, lw = left_equi.shape[:2]
         rh, rw = right_equi.shape[:2]
+        lc = left_equi.shape[2] if left_equi.ndim == 3 else 1
+        rc = right_equi.shape[2] if right_equi.ndim == 3 else 1
         msg = (
-            "Left and right equirectangular outputs differ in size "
-            f"({w}x{h} vs {rw}x{rh})."
+            "Left and right equirectangular outputs differ in shape "
+            f"({lw}x{lh}x{lc} vs {rw}x{rh}x{rc})."
         )
         if frame_label is not None:
-            msg = f"Frame {frame_label}: left and right equirectangular outputs differ in size ({w}x{h} vs {rw}x{rh})."
+            msg = (
+                f"Frame {frame_label}: left and right equirectangular outputs differ in shape "
+                f"({lw}x{lh}x{lc} vs {rw}x{rh}x{rc})."
+            )
         raise ImageSetError(msg)
 
     if output_mode == StereoOutputMode.EQUIRECTANGULAR_STEREO_OVER_UNDER:

@@ -15,7 +15,7 @@ This tab takes:
 1. The **folder with the rendered images**
 2. The **nDisplay configuration file** (the same one that defines the Output Mapping)
 
-and produces **one merged image per frame**, laid out exactly as defined in the nDisplay config.
+and produces **one merged image per frame**, laid out exactly as defined in the nDisplay config. The merger reads the cluster **primary node** (`primaryNode.id`) when present, and normalizes viewport `region` / window sizes to integers so Unreal float exports (e.g. `0.0` or FP noise) do not break compositing.
 
 **Input** and **output naming** use Movie Render Queue–style templates with `{placeholders}` (type `{` in the UI for a keyword list). The input template must include `{camera_name}`, `{frame_number}`, and `{ext}` (`.jpeg`, `.jpg`, or `.png` only; **EXR is not supported**). Defaults: input `{sequence_name}.{camera_name}.{frame_number}.{ext}`, output `{sequence_name}.{frame_number}.{ext}`. Every output placeholder must appear in the input template; merged output uses the same image format as the inputs (PNG or JPEG).
 
@@ -76,7 +76,13 @@ pip install -r requirements.txt
 
 ### How to Use (GUI – recommended)
 
-Launch `nDisplayMerger.exe` (see **Compile to Executable**) or `python ui.py`. Use **Run** / **Pause** / **Resume** and **Stop** in the footer; set **Start frame** / **End frame** and **Workers** on the active tab. The **?** button on each tab opens detailed help.
+Launch options:
+
+- **Windows + venv:** double-click `nDisplayMerger.bat` (uses `.venv\Scripts\pythonw.exe` when present)
+- **Executable:** `nDisplayMerger.exe` (see **Compile to Executable**)
+- **Manual:** `python ui.py` with the venv activated
+
+Use **Run** / **Pause** / **Resume** and **Stop** in the footer; set **Start frame** / **End frame** and **Workers** on the active tab. Closing the window cancels any in-flight merge (and waits briefly for workers to drain). The **?** button on each tab opens detailed help.
 
 #### Config Merger tab
 

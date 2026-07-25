@@ -209,6 +209,7 @@ def build_ui(root):
     stereo_rp_vars = {}
 
     worker_running = [False]
+    worker_thread = [None]
 
     def persist_settings():
         # Merge into existing JSON so naming keys saved on Run are not erased on window close.
@@ -911,11 +912,13 @@ def build_ui(root):
         pause_event.clear()
         reset_progress_ui()
         set_buttons_running()
-        threading.Thread(
+        t = threading.Thread(
             target=run_legacy_worker,
             args=(nw, rp_filter),
             daemon=True,
-        ).start()
+        )
+        worker_thread[0] = t
+        t.start()
 
     def run_stereo_worker(max_workers, render_passes_to_process=None):
         start_time = time.time()
@@ -1012,11 +1015,13 @@ def build_ui(root):
         pause_event.clear()
         reset_progress_ui()
         set_buttons_running()
-        threading.Thread(
+        t = threading.Thread(
             target=run_stereo_worker,
             args=(nw, rp_filter),
             daemon=True,
-        ).start()
+        )
+        worker_thread[0] = t
+        t.start()
 
     def on_run_pause_resume():
         if not worker_running[0]:
@@ -1034,6 +1039,15 @@ def build_ui(root):
 
     def on_closing():
         persist_settings()
+        # Stop in-flight ProcessPool workers before tearing down Tk; otherwise close
+        # during a merge can leave orphan processes or hang interpreter shutdown.
+        pause_event.clear()
+        cancel_event.set()
+        t = worker_thread[0]
+        if t is not None and t.is_alive():
+            # Drain cancel path (waits for in-flight frames). Cap wait so a stuck
+            # pool cannot block window close forever.
+            t.join(timeout=30.0)
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
