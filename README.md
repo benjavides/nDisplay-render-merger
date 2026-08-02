@@ -15,7 +15,7 @@ This tab takes:
 1. The **folder with the rendered images**
 2. The **nDisplay configuration file** (the same one that defines the Output Mapping)
 
-and produces **one merged image per frame**, laid out exactly as defined in the nDisplay config.
+and produces **one merged image per frame**, laid out exactly as defined in the nDisplay config. The merger reads the cluster **primary node** (`primaryNode.id`) when present, and normalizes viewport `region` / window sizes to integers so Unreal float exports (e.g. `0.0` or FP noise) do not break compositing.
 
 **Input** and **output naming** use Movie Render Queue–style templates with `{placeholders}` (type `{` in the UI for a keyword list). The input template must include `{camera_name}`, `{frame_number}`, and `{ext}` (`.jpeg`, `.jpg`, or `.png` only; **EXR is not supported**). Defaults: input `{sequence_name}.{camera_name}.{frame_number}.{ext}`, output `{sequence_name}.{frame_number}.{ext}`. Every output placeholder must appear in the input template; merged output uses the same image format as the inputs (PNG or JPEG).
 
@@ -43,7 +43,9 @@ Over/under templates must not use `{eye}`; mono templates must include `{eye}`. 
 
 If you leave **output** empty, the base folder defaults to `merged_stereo` next to the parent of the left eye folder; subfolders come from your output naming template (defaults include `left_eye` / `right_eye` for mono).
 
-**Memory:** each stereo frame uses a lot of RAM inside `py360convert` (especially at 2K/4K face resolution). In the UI, use a low **Workers** value (often 1–2) on this tab if you see out-of-memory issues. Stereo conversion is invoked from the GUI or by calling `stereo_merger.main(...)` in Python; there is no separate stereo CLI entry point.
+**Speed:** the cubemap → equirectangular resampling grid depends only on the face and output resolution, so it is built once per worker process and reused for every frame, and all colour channels are resampled in a single OpenCV `remap` call (see `fast_c2e.py`). JPEG faces are read as RGB instead of RGBA, since JPEG carries no alpha to resample. Measured on a 2000 px-per-face, 3089-frame stereo sequence (28-core CPU): **1.98 s/frame → 0.13 s/frame at 10–14 workers**, i.e. ~100 min → ~7 min. Output is pixel-identical to the previous code for 99.9% of pixels and never differs by more than 1/255.
+
+**Memory:** each stereo frame still uses a lot of RAM (especially at 2K/4K face resolution) — budget roughly 1 GB per worker at 2K faces. Raising **Workers** helps until it reaches about half your CPU cores, after which disk I/O is the limit. Lower it if you see out-of-memory issues. Stereo conversion is invoked from the GUI or by calling `stereo_merger.main(...)` in Python; there is no separate stereo CLI entry point.
 
 ---
 
@@ -51,7 +53,9 @@ If you leave **output** empty, the base folder defaults to `merged_stereo` next 
 
 - **Python 3.9+** (tested with 3.9/3.10)
 - Unreal Engine **5.1 or later** (for Movie Render Queue with nDisplay)
-- The Python dependencies in `requirements.txt` (includes **simplejpeg** / libjpeg-turbo for faster JPEG read/write, plus **numpy**, **scipy**, and **py360convert** for the Stereo VR tab)
+- The Python dependencies in `requirements.txt` (includes **simplejpeg** / libjpeg-turbo for faster JPEG read/write, **opencv-python-headless** for the fast cubemap resampling in the Stereo VR tab, plus **numpy**, **scipy**, and **py360convert**)
+
+> Without OpenCV installed the Stereo VR tab still works, falling back to `py360convert`'s SciPy path — roughly 15x slower per frame.
 
 Create and activate a virtual environment (recommended):
 
@@ -72,7 +76,13 @@ pip install -r requirements.txt
 
 ### How to Use (GUI – recommended)
 
-Launch `nDisplayMerger.exe` (see **Compile to Executable**) or `python ui.py`. Use **Run** / **Pause** / **Resume** and **Stop** in the footer; set **Start frame** / **End frame** and **Workers** on the active tab. The **?** button on each tab opens detailed help.
+Launch options:
+
+- **Windows + venv:** double-click `nDisplayMerger.bat` (uses `.venv\Scripts\pythonw.exe` when present)
+- **Executable:** `nDisplayMerger.exe` (see **Compile to Executable**)
+- **Manual:** `python ui.py` with the venv activated
+
+Use **Run** / **Pause** / **Resume** and **Stop** in the footer; set **Start frame** / **End frame** and **Workers** on the active tab. Closing the window cancels any in-flight merge (and waits briefly for workers to drain). The **?** button on each tab opens detailed help.
 
 #### Config Merger tab
 

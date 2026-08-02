@@ -84,20 +84,27 @@ def read_ndisplay_config(file_path):
         if not isinstance(nodes, dict) or not nodes:
             raise KeyError("nodes")
 
-        # Pick a node deterministically (first key when sorted)
-        node_key = sorted(nodes.keys())[0]
+        # Prefer the cluster primary node; fall back to a deterministic key order.
+        primary = cluster.get("primaryNode")
+        primary_id = primary.get("id") if isinstance(primary, dict) else None
+        if primary_id in nodes:
+            node_key = primary_id
+        else:
+            node_key = sorted(nodes.keys())[0]
         node = nodes[node_key]
 
         viewports = node["viewports"]
         window = node["window"]
+        if not isinstance(viewports, dict) or not isinstance(window, dict):
+            raise TypeError("viewports/window")
     except (KeyError, TypeError) as exc:
         raise ConfigError(
             "Invalid nDisplay config structure; expected 'nDisplay.cluster.nodes[<node>].viewports' and 'window'."
         ) from exc
 
     try:
-        width = int(window["w"])
-        height = int(window["h"])
+        width = int(round(float(window["w"])))
+        height = int(round(float(window["h"])))
     except (KeyError, TypeError, ValueError) as exc:
         raise ConfigError("Invalid window dimensions in nDisplay config.") from exc
 
@@ -107,6 +114,28 @@ def read_ndisplay_config(file_path):
     # Normalize window dimensions to integers while preserving original structure keys
     window["w"] = width
     window["h"] = height
+
+    # Unreal often exports region coords as floats (0.0 or FP noise); Pillow paste needs ints.
+    for vp_name, vp in viewports.items():
+        if not isinstance(vp, dict):
+            raise ConfigError(f"Invalid viewport entry '{vp_name}' in nDisplay config.")
+        region = vp.get("region")
+        if not isinstance(region, dict):
+            raise ConfigError(f"Viewport '{vp_name}' is missing a region object.")
+        try:
+            region["x"] = int(round(float(region["x"])))
+            region["y"] = int(round(float(region["y"])))
+            region["w"] = int(round(float(region["w"])))
+            region["h"] = int(round(float(region["h"])))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ConfigError(
+                f"Invalid region coordinates for viewport '{vp_name}' in nDisplay config."
+            ) from exc
+        if region["w"] <= 0 or region["h"] <= 0:
+            raise ConfigError(
+                f"Viewport '{vp_name}' region size must be positive "
+                f"(got {region['w']}x{region['h']})."
+            )
 
     return viewports, window
 

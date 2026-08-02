@@ -84,7 +84,11 @@ HELP_STEREO = (
     "BACK, LEFT, FRONT, RIGHT, UP, or DOWN (any case).\n\n"
     "In Equirectangular mono mode, output naming must include {eye} so left and right files do not collide.\n\n"
     "If you use render passes and export more than one pass, add {render_pass} to output naming too.\n\n"
-    "Large cubemap images use a lot of memory; try one or two workers if the app struggles."
+    "Each worker converts one whole frame (both eyes) at a time, so more workers means more "
+    "frames in flight. Speed usually stops improving once workers reach about half your CPU "
+    "cores, because reading and writing the images becomes the limit.\n\n"
+    "Large cubemap images use a lot of memory: budget roughly 1 GB of RAM per worker for "
+    "2K faces, more for 4K. Lower the worker count if the app struggles."
 )
 
 
@@ -205,6 +209,7 @@ def build_ui(root):
     stereo_rp_vars = {}
 
     worker_running = [False]
+    worker_thread = [None]
 
     def persist_settings():
         # Merge into existing JSON so naming keys saved on Run are not erased on window close.
@@ -907,11 +912,13 @@ def build_ui(root):
         pause_event.clear()
         reset_progress_ui()
         set_buttons_running()
-        threading.Thread(
+        t = threading.Thread(
             target=run_legacy_worker,
             args=(nw, rp_filter),
             daemon=True,
-        ).start()
+        )
+        worker_thread[0] = t
+        t.start()
 
     def run_stereo_worker(max_workers, render_passes_to_process=None):
         start_time = time.time()
@@ -1008,11 +1015,13 @@ def build_ui(root):
         pause_event.clear()
         reset_progress_ui()
         set_buttons_running()
-        threading.Thread(
+        t = threading.Thread(
             target=run_stereo_worker,
             args=(nw, rp_filter),
             daemon=True,
-        ).start()
+        )
+        worker_thread[0] = t
+        t.start()
 
     def on_run_pause_resume():
         if not worker_running[0]:
@@ -1030,6 +1039,15 @@ def build_ui(root):
 
     def on_closing():
         persist_settings()
+        # Stop in-flight ProcessPool workers before tearing down Tk; otherwise close
+        # during a merge can leave orphan processes or hang interpreter shutdown.
+        pause_event.clear()
+        cancel_event.set()
+        t = worker_thread[0]
+        if t is not None and t.is_alive():
+            # Drain cancel path (waits for in-flight frames). Cap wait so a stuck
+            # pool cannot block window close forever.
+            t.join(timeout=30.0)
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
